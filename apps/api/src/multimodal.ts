@@ -194,9 +194,9 @@ export function installMultimodal(c:any) {
   async function sync(folder:any,preview=false){
     if(preview)return {files:(await list(folder)).map((x:any)=>({name:x.name,kind:kindOf(x.name)}))};
     const claimed=await db.cloudFolder.updateMany({where:{id:folder.id,status:'active',OR:[{leaseUntil:null},{leaseUntil:{lt:new Date()}}]},data:{leaseUntil:new Date(Date.now()+3600000)}});if(!claimed.count)throw Error('Проверка уже выполняется или папка на паузе.');
-    const run=await db.syncRun.create({data:{folderId:folder.id}});const events:any[]=[];const stats={new:0,changed:0,skipped:0,errors:0};
+    const run=await db.syncRun.create({data:{folderId:folder.id}});const events:any[]=[];const stats={total:0,new:0,changed:0,skipped:0,errors:0};
     try{
-      const files=await list(folder);const registry={...folder.registry};
+      const files=await list(folder);stats.total=files.length;const registry={...folder.registry};
       for(const x of files){const old=registry[x.id],kind=kindOf(x.name);const stamp=String(x.version)+':'+x.size;
         if(!kind||folder.settings.types?.[kind]===false){stats.skipped++;events.push({name:x.name,status:'Пропущен по настройке типа'});continue;}
         if(old?.stamp===stamp&&old.imported){if(old.name!==x.name)await db.material.updateMany({where:{folderId:folder.id,providerFileId:x.id},data:{name:x.name}});stats.skipped++;registry[x.id]={...old,name:x.name,seenAt:new Date().toISOString()};continue;}
@@ -288,12 +288,12 @@ export function installMultimodal(c:any) {
   app.put('/cloud/folders/:id',auth,wrap(async(req:any,res:any)=>{const f=await db.cloudFolder.findUnique({where:{id:req.params.id}});if(!f)throw Error('Папка не найдена');await admin(req,f.organizationId);const data:any={};if(req.body.settings)data.settings=req.body.settings;if(req.body.schedule){data.schedule=validateSchedule(req.body.schedule);data.nextRunAt=nextRuns(data.schedule)[0];}if(['active','paused'].includes(req.body.status))data.status=req.body.status;res.json(await db.cloudFolder.update({where:{id:f.id},data}));}));
   async function checkFolders(organizationId:string,syncOne=sync){
     const folders=await db.cloudFolder.findMany({where:{organizationId},orderBy:{createdAt:'asc'}});
-    const summary={folders:folders.length,checked:0,new:0,changed:0,queued:0,skipped:0,paused:0,reconnect:0,pending:0,errors:0};const results:any[]=[];
+    const summary={folders:folders.length,checked:0,total:0,new:0,changed:0,queued:0,skipped:0,paused:0,reconnect:0,pending:0,errors:0};const results:any[]=[];
     for(const folder of folders){
       const base={id:folder.id,name:folder.name,provider:provider(folder.provider).name};
       if(folder.status==='paused'){summary.paused++;results.push({...base,status:'paused'});continue;}
       if(folder.status!=='active'){summary.reconnect++;results.push({...base,status:'reconnect'});continue;}
-      try{const result=await syncOne(folder);const stats=result.stats;const pending=(result.events||[]).filter((x:any)=>String(x.status).includes('Загрузка в облако ещё не завершена')).length;summary.checked++;summary.new+=stats.new;summary.changed+=stats.changed;summary.queued+=stats.new+stats.changed;summary.skipped+=stats.skipped;summary.errors+=stats.errors;summary.pending+=pending;results.push({...base,status:stats.errors?'partial':'done',stats,pending});}
+      try{const result=await syncOne(folder);const stats=result.stats;const pending=(result.events||[]).filter((x:any)=>String(x.status).includes('Загрузка в облако ещё не завершена')).length;summary.checked++;summary.total+=stats.total;summary.new+=stats.new;summary.changed+=stats.changed;summary.queued+=stats.new+stats.changed;summary.skipped+=stats.skipped;summary.errors+=stats.errors;summary.pending+=pending;results.push({...base,status:stats.errors?'partial':'done',stats,pending});}
       catch(e:any){summary.errors++;results.push({...base,status:'failed',error:String(e.message||'Не удалось проверить папку').slice(0,700)});}
     }
     return {summary,results,completedAt:new Date().toISOString()};

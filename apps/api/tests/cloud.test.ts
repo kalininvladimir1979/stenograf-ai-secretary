@@ -82,8 +82,8 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   await assert.rejects(()=>fs.access(image.localPath));await fs.access(replaced.localPath);
   const scanFolders=await db.cloudFolder.findMany({where:{organizationId:org.id},orderBy:{createdAt:'asc'}});
   const checkedIds:string[]=[];
-  const scanned=await service.checkFolders(org.id,async(f:any)=>{checkedIds.push(f.id);if(f.id===scanFolders[0].id)throw Error('Fixture provider unavailable');return {stats:{new:2,changed:1,skipped:4,errors:0},events:[{status:'Загрузка в облако ещё не завершена'}]};});
-  assert.equal(scanned.summary.errors,1);assert.equal(scanned.summary.queued,(scanFolders.length-1)*3);assert.equal(checkedIds.length,scanFolders.length);assert.equal(scanned.summary.pending,scanFolders.length-1);
+  const scanned=await service.checkFolders(org.id,async(f:any)=>{checkedIds.push(f.id);if(f.id===scanFolders[0].id)throw Error('Fixture provider unavailable');return {stats:{total:8,new:2,changed:1,skipped:4,errors:0},events:[{status:'Загрузка в облако ещё не завершена'}]};});
+  assert.equal(scanned.summary.total,(scanFolders.length-1)*8);assert.equal(scanned.summary.errors,1);assert.equal(scanned.summary.queued,(scanFolders.length-1)*3);assert.equal(checkedIds.length,scanFolders.length);assert.equal(scanned.summary.pending,scanFolders.length-1);
   await db.cloudFolder.update({where:{id:scanFolders[0].id},data:{status:'paused'}});
   await db.cloudFolder.update({where:{id:scanFolders[1].id},data:{status:'reconnect'}});
   const skippedScan=await service.checkFolders(org.id,async()=>{throw Error('Should not scan inactive folder');});

@@ -51,7 +51,7 @@ try{
  assert.equal((await request('/cloud/folders/check-all',{organizationId:org},browsers[0],a.token)).status,403);
  assert.equal((await request('/cloud/folders/check-all',{organizationId:org},browsers[1],foreignAdmin.token)).status,403);
  const emptyScan=await request('/cloud/folders/check-all',{organizationId:org},browsers[0],admin.token);
- assert.equal(emptyScan.status,200);assert.equal(emptyScan.data.summary.folders,0);assert.equal(emptyScan.data.summary.queued,0);
+ assert.equal(emptyScan.data.summary.total,0);assert.equal(emptyScan.status,200);assert.equal(emptyScan.data.summary.folders,0);assert.equal(emptyScan.data.summary.queued,0);
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],admin.token)).data.remaining,3);
  const providers=(await request('/cloud/providers',null,browsers[0],admin.token)).data;
  assert.equal(providers.length,5);
