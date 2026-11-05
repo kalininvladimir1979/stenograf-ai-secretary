@@ -1543,12 +1543,11 @@ function MeetingDetail({
   return (
     <section className="detail">
       <Usage orgId={org.id}/>
-      {m.processingStage&&<p role="status">Этап: {m.processingStage} · начало {m.processingStartedAt?new Date(m.processingStartedAt).toLocaleString('ru-RU'):'—'}</p>}
       {m.error&&/ключ/i.test(m.error)&&<AdminLink meetingId={id}/>}
       <button className="back" onClick={onBack}>
         ← Все встречи
       </button>
-      <header className="detail-head">
+      <header className="detail-head detail-head--meeting">
         <div>
           <p>
             {m.department.name} · {m.template?.name}
@@ -1558,9 +1557,8 @@ function MeetingDetail({
               <input value={titleDraft} maxLength={160} onChange={(event) => setTitleDraft(event.target.value)} />
             </label>
           ) : <h1>{m.title}</h1>}
-          <span className={`state ${m.state.toLowerCase()}`}>{meetingStateLabels[m.state] || m.state}</span>
         </div>
-        <div>
+        <div className="detail-head__actions" role="group" aria-label="Действия со встречей">
           {m.canEdit && !editingTitle && <button className="outline" onClick={() => { setEditingTitle(true); setTitleDraft(m.title); }}><Pencil size={15} /> Переименовать</button>}
           {editingTitle && <button className="outline" onClick={() => setEditingTitle(false)}><X size={15} /> Отмена</button>}
           {m.canEdit && <button className="outline" onClick={() => changeTab("materials")}><Plus size={15} /> Добавить файл</button>}
@@ -1576,6 +1574,7 @@ function MeetingDetail({
             Сохранить изменения
           </button>
         </div>
+        <div className="detail-head__status" role="status"><span className={`state ${m.state.toLowerCase()}`}>{meetingStateLabels[m.state] || m.state}</span>{m.state==='PROCESSING'&&m.processingStage&&<span>{m.processingStage}{m.processingStartedAt?` · начало ${new Date(m.processingStartedAt).toLocaleString('ru-RU')}`:''}</span>}</div>
       </header>
       {m.state === "FAILED" && (
         <div className="detail-error-panel" role="alert">
@@ -2224,9 +2223,10 @@ function TourMeetingPreview({ taskEditor = false }: { taskEditor?: boolean }) {
   const firstTask = tourPreviewTasks[0];
   return <section className="detail tour-preview" aria-label="Пример готовой встречи">
     <button className="back" type="button">← Все встречи</button>
-    <header className="detail-head">
-      <div><p>Общий · Рабочая встреча</p><h1>План запуска проекта</h1><span className="state ready">Готово</span></div>
-      <div><button className="outline" type="button"><Pencil size={15} /> Переименовать</button><button className="outline" type="button"><Plus size={15} /> Добавить файл</button><button className="primary" type="button">Сохранить изменения</button></div>
+    <header className="detail-head detail-head--meeting">
+      <div><p>Общий · Рабочая встреча</p><h1>План запуска проекта</h1></div>
+      <div className="detail-head__actions"><button className="outline" type="button"><Pencil size={15} /> Переименовать</button><button className="outline" type="button"><Plus size={15} /> Добавить файл</button><button className="primary" type="button">Сохранить изменения</button></div>
+      <div className="detail-head__status"><span className="state ready">Готово</span></div>
     </header>
     <div className="tabs" data-tour-target="meeting-results">
       <button className="active" type="button">Результат</button><button type="button">Расшифровка</button><button type="button">Материалы</button>
