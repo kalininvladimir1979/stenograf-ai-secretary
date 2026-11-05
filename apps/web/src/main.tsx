@@ -632,14 +632,14 @@ function MeetingCard({
   return (
     <article className={`meeting-card meeting-card--${view}${onOpen ? "" : " meeting-card--processing"}`} onClick={onOpen}>
       <div className="card-meta">
-        <span>{meeting.department.name}</span>
+        <span className="card-meta__department">{meeting.department.name}</span>
         <span>{date(meeting.updatedAt)}</span>
         <span>{meeting.template?.name || "Без шаблона"}</span>
-        <span>{meeting.sourceKind==='folder'?'Из облачной папки':meeting.sourceKind==='link'?'Из облака по ссылке':'Загружено вручную'} · {meeting.materialKind==='collection'?'Папка / проект':meeting.materialKind||'текст'}</span>
-        <ArrowUpRight size={14} />
+        <span className="card-meta__source">{meeting.sourceKind==='folder'?'Из облачной папки':meeting.sourceKind==='link'?'Из облака по ссылке':'Загружено вручную'}<span aria-hidden="true">·</span><span>{{audio:'Аудиозапись',video:'Видеозапись',image:'Изображение',document:'Документ',collection:'Папка / проект',text:'Заметки'}[meeting.materialKind||'text']||'Материал'}</span></span>
+        <ArrowUpRight className="card-meta__open" size={14} aria-hidden="true" />
       </div>
       <h2>{meeting.title}</h2>
-      {meeting.processingStage&&<p role="status">{meeting.processingStage}</p>}
+      {meeting.processingStage&&<p className="meeting-card__stage" role="status">{meeting.processingStage}</p>}
       {view !== "minimal" && <p className="meeting-card__preview">{meetingPreview(meeting.summary, view)}</p>}
       <footer>
         <span>Решения: {meeting.summary ? "есть" : "—"}</span>
