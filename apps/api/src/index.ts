@@ -1166,8 +1166,8 @@ app.post("/meetings", auth, async (req: Authed, res) => {
       ...p,
       creatorId: req.user!.id,
       notes: p.notes || null,
-      state: p.notes ? MeetingState.PROCESSING : MeetingState.DRAFT,
-      processingStartedAt: p.notes ? new Date() : null,
+      state: p.notes && req.body.deferAnalysis!==true ? MeetingState.PROCESSING : MeetingState.DRAFT,
+      processingStartedAt: p.notes && req.body.deferAnalysis!==true ? new Date() : null,
     },
   });
   await db.devSetting.create({data:{organizationId:p.organizationId,key:'report_illustrations:'+meeting.id,value:String(req.body.illustrations!==false)}});
@@ -1176,7 +1176,7 @@ app.post("/meetings", auth, async (req: Authed, res) => {
       await db.transcript.create({
         data: { meetingId: meeting.id, text: p.notes, source: "notes" },
       });
-      await processMeeting(meeting.id);
+      if(req.body.deferAnalysis!==true)await processMeeting(meeting.id);
     } catch {}
   }
   await audit(

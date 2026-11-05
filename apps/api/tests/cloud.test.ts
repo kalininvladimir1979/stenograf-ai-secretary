@@ -48,6 +48,11 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   const one=await service.queue({...input,folderId:single.id,grouping:'file',id:'one',name:'one.mp4'});
   const two=await service.queue({...input,folderId:single.id,grouping:'file',id:'two',name:'two.png'});assert.notEqual(one.meetingId,two.meetingId);
   const changed=await service.queue({...input,folderId:single.id,grouping:'file',id:'one',name:'renamed.mp4',version:'2'});assert.equal(changed.meetingId,one.meetingId);assert.equal(changed.duplicate,false);
+  const linkInput={organizationId:org.id,ownerId:user.id,provider:'yandex',origin:'link',rule:'meeting',id:'public-video',version:'1',name:'source.mp4',title:'Название из формы',notes:'Контекст встречи из формы',illustrations:false};
+  const linked=await service.queue(linkInput);const linkedMeeting=await db.meeting.findUniqueOrThrow({where:{id:linked.meetingId},include:{transcript:true}});
+  assert.equal(linkedMeeting.title,linkInput.title);assert.equal(linkedMeeting.notes,linkInput.notes);assert.equal(linkedMeeting.transcript?.text,linkInput.notes);
+  assert.equal((await db.devSetting.findUniqueOrThrow({where:{key:'report_illustrations:'+linkedMeeting.id}})).value,'false');
+  const duplicateLink=await service.queue({...linkInput,title:'Другое название'});assert.equal(duplicateLink.duplicate,true);assert.equal(duplicateLink.meetingId,linkedMeeting.id);
   const version=await db.analysisVersion.create({data:{meetingId:one.meetingId,number:1,state:'applied',result:{},snapshot:{}}});
   await db.meeting.update({where:{id:one.meetingId},data:{activeVersionId:version.id,summary:'Test summary'}});
   const ask=async()=>{let status=200,result:any;const res:any={status:(n:number)=>{status=n;return res;},json:(v:any)=>{result=v;return res;}};await service.chat({params:{id:one.meetingId},user:{id:user.id},body:{message:'Question'}},res);return {status,result};};
@@ -76,7 +81,7 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   assert.equal(await db.reportImage.count({where:{versionId:nextVersion.id}}),1);
   await assert.rejects(()=>fs.access(image.localPath));await fs.access(replaced.localPath);
  }finally{
-  if(org){await db.processingJob.deleteMany({where:{organizationId:org.id}});await db.material.deleteMany({where:{organizationId:org.id}});await db.cloudFolder.deleteMany({where:{organizationId:org.id}});await db.aiOperation.deleteMany({where:{organizationId:org.id}});await db.demoSpace.deleteMany({where:{organizationId:org.id}});await db.organization.delete({where:{id:org.id}});await db.user.deleteMany({where:{email:'test-'+tag+'@example.invalid'}});}
+  if(org){await db.processingJob.deleteMany({where:{organizationId:org.id}});await db.material.deleteMany({where:{organizationId:org.id}});await db.cloudFolder.deleteMany({where:{organizationId:org.id}});await db.aiOperation.deleteMany({where:{organizationId:org.id}});await db.demoSpace.deleteMany({where:{organizationId:org.id}});await db.devSetting.deleteMany({where:{organizationId:org.id}});await db.organization.delete({where:{id:org.id}});await db.user.deleteMany({where:{email:'test-'+tag+'@example.invalid'}});}
   await db.$disconnect();
   await fs.rm(temp,{recursive:true,force:true});
  }

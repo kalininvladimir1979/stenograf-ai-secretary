@@ -794,14 +794,17 @@ const mediaFileKind = (file: File): "audio" | "video" | null => {
   return null;
 };
 const fileCountLabel = (count: number) => `${count} ${count % 10 === 1 && count % 100 !== 11 ? "файл" : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? "файла" : "файлов"}`;
+const meetingAttachmentKind=(file:File)=>mediaFileKind(file)||(/\.(jpe?g|png|webp|tiff?)$/i.test(file.name)?'image':/\.(txt|md|pdf|docx|rtf|csv|xlsx|pptx)$/i.test(file.name)?'document':null);
 
 function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId: string, processing: boolean) => void; onCancel: () => void }) {
-  const [form, setForm] = useState<{title:string;departmentId:string;templateId:string;notes:string;illustrations:boolean}>(() => ({
+  const [form, setForm] = useState<{title:string;departmentId:string;templateId:string;notes:string;illustrations:boolean;source:'upload'|'link';cloudUrl:string}>(() => ({
       title: "",
       departmentId: org.departments[0]?.id || "",
       templateId: org.templates[0]?.id || "",
       notes: "",
       illustrations:true,
+      source:'upload',
+      cloudUrl:sessionStorage.getItem('secretary-cloud-link')||'',
       ...JSON.parse(sessionStorage.getItem('secretary-create-draft:'+org.id)||'{}'),
     })),
     [mediaFiles, setMediaFiles] = useState<File[]>([]),
@@ -866,9 +869,10 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
     };
   }, []);
   const chooseMedia = (files: File[]) => {
-    const unsupported = files.filter((item) => !mediaFileKind(item));
+    if(busy)return;
+    const unsupported = files.filter((item) => !meetingAttachmentKind(item));
     if (unsupported.length) {
-      setError(`Не удалось определить тип файла: ${unsupported.map((item) => item.name).join(", ")}. Выберите аудио или видео, которое поддерживает FFmpeg.`);
+      setError(`Формат не поддерживается: ${unsupported.map((item) => item.name).join(", ")}. Выберите аудио, видео, изображение или документ из списка поддерживаемых форматов.`);
       return;
     }
     setMediaFiles(files);
@@ -901,7 +905,7 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
   const stopRecording = () => { if (recorderRef.current?.state === "recording") recorderRef.current.stop(); };
   const requestCancel = () => {
     if (busy || cancelBusy) return;
-    const changed = Boolean(form.title.trim() || form.notes.trim() || mediaFiles.length || createdMeetingId.current ||
+    const changed = Boolean(form.title.trim() || form.notes.trim() || form.cloudUrl.trim() || mediaFiles.length || createdMeetingId.current ||
       form.departmentId !== (org.departments[0]?.id || "") || form.templateId !== (org.templates[0]?.id || ""));
     if (changed) { setCancelError(""); setConfirmCancel(true); }
     else onCancel();
@@ -911,6 +915,7 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
     setCancelError("");
     try {
       if (createdMeetingId.current) await api(`/meetings/${createdMeetingId.current}`, { method: "DELETE" });
+      sessionStorage.removeItem('secretary-create-draft:'+org.id);
       onCancel();
     } catch (cause) {
       setCancelError(cause instanceof Error ? cause.message : "Не удалось отменить создание встречи.");
@@ -929,10 +934,16 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
     setBusy(true);
     setError("");
     try {
+      if(form.source==='link'){
+        if(!form.cloudUrl.trim())throw Error('Вставьте ссылку на файл в облаке');
+        const result=await api<any>('/materials/import',{method:'POST',body:JSON.stringify({organizationId:org.id,departmentId:form.departmentId,templateId:form.templateId,title:form.title,notes:form.notes,illustrations:form.illustrations,url:form.cloudUrl.trim(),rule:'meeting'})});
+        sessionStorage.removeItem('secretary-create-draft:'+org.id);sessionStorage.removeItem('secretary-cloud-link');
+        onDone(result.meetingId,!result.duplicate);return;
+      }
       if (!createdMeetingId.current) {
         const meeting = await api<any>("/meetings", {
           method: "POST",
-          body: JSON.stringify({ organizationId: org.id, ...form }),
+          body: JSON.stringify({ organizationId: org.id, ...form, deferAnalysis:mediaFiles.length>0 }),
         });
         createdMeetingId.current = meeting.id;
       }
@@ -941,12 +952,14 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
       for (let index = uploadedMediaCount.current; index < mediaFiles.length; index++) {
         const mediaFile = mediaFiles[index];
         if (mediaFileKind(mediaFile) === "video") await video(`/meetings/${meetingId}/video`, mediaFile);
-        else await audio(`/meetings/${meetingId}/audio`, mediaFile);
+        else if(mediaFileKind(mediaFile)==='audio')await audio(`/meetings/${meetingId}/audio`, mediaFile);
+        else{const data=new FormData();data.append('file',mediaFile);data.append('organizationId',org.id);data.append('meetingId',meetingId);const r=await fetch(API+'/materials/upload',{method:'POST',headers:{Authorization:'Bearer '+token(),'x-demo-browser':demoBrowser()},body:data});const result=await r.json();if(!r.ok)throw Error(result.error||'Не удалось загрузить материал');}
         uploadedMediaCount.current = index + 1;
       }
+      sessionStorage.removeItem('secretary-create-draft:'+org.id);
       onDone(meetingId, Boolean(mediaFiles.length || form.notes.trim()));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка");
+      setError((e instanceof Error ? e.message : "Ошибка")+(form.source==='link'?' Если файл недоступен по ссылке, скачайте его и выберите «Файлы с компьютера».':''));
     } finally {
       setBusy(false);
     }
@@ -957,8 +970,7 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
         <button type="button" className="back" disabled={busy || cancelBusy} onClick={requestCancel}>← Все встречи</button>
         <h1>Новая встреча</h1>
         <p>
-          Загрузите аудио, видео или вставьте заметки. AI отмечает неизвестные данные,
-          а не заполняет их догадками.
+          Добавьте заметки, файлы с компьютера или ссылку на запись в облаке. Материалы и результаты сохранятся в одной встрече.
         </p>
       </div>
       <div className="form-grid">
@@ -1009,18 +1021,21 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
         />
       </label>
-      <input ref={mediaInput} className="media-picker-input" type="file" multiple accept="audio/*,video/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.oga,.opus,.wma,.aiff,.aif,.amr,.caf,.alac,.mp4,.mov,.mkv,.avi,.webm,.mpeg,.mpg,.m4v,.wmv,.flv,.ts,.mts,.m2ts,.3gp,.ogv,.vob" onChange={(event) => { chooseMedia(Array.from(event.target.files || [])); event.target.value = ""; }} />
+      <section className="compose-material-source"><h2>Материалы встречи</h2><div className="compose-source-switch" role="group" aria-label="Источник материалов"><button type="button" aria-pressed={form.source==='upload'} disabled={busy||recording||!!createdMeetingId.current} onClick={()=>setForm({...form,source:'upload'})}>Файлы с компьютера</button><button type="button" aria-pressed={form.source==='link'} disabled={busy||recording||!!createdMeetingId.current} onClick={()=>setForm({...form,source:'link'})}>Ссылка на файл в облаке</button></div>
+      {form.source==='link'?<label className="compose-cloud-link">Ссылка на видеозапись или другой файл<input type="url" value={form.cloudUrl} disabled={busy} placeholder="https://disk.yandex.ru/i/…" onChange={e=>setForm({...form,cloudUrl:e.target.value})}/><small>Укажите конкретный файл. После создания встречи скачивание, распознавание и AI-анализ запустятся автоматически. Повторная неизменённая ссылка откроет сохранённый результат.</small></label>:<>
+      <input ref={mediaInput} className="media-picker-input" type="file" multiple accept="audio/*,video/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.oga,.opus,.wma,.aiff,.aif,.amr,.caf,.alac,.mp4,.mov,.mkv,.avi,.webm,.mpeg,.mpg,.m4v,.wmv,.flv,.ts,.mts,.m2ts,.3gp,.ogv,.vob,.jpg,.jpeg,.png,.webp,.tif,.tiff,.txt,.md,.pdf,.docx,.rtf,.csv,.xlsx,.pptx" onChange={(event) => { chooseMedia(Array.from(event.target.files || [])); event.target.value = ""; }} />
       <button data-tour-target="meeting-materials" type="button" className={`audio-drop media-drop${dragging ? " media-drop--dragging" : ""}`} onClick={() => mediaInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }} onDragLeave={(event) => { event.preventDefault(); if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event) => { event.preventDefault(); setDragging(false); chooseMedia(Array.from(event.dataTransfer.files)); }}>
         <FileAudio size={22} />
-        <strong>{mediaFiles.length ? `Выбрано файлов: ${mediaFiles.length}` : "Добавить аудио или видео"}</strong>
-        <span>Нажмите для выбора или перетащите файлы сюда. Поддерживаются аудио и видеоформаты, которые распознаёт серверный FFmpeg.</span>
+        <strong>{mediaFiles.length ? `Выбрано файлов: ${mediaFiles.length}` : "Добавить файлы встречи"}</strong>
+        <span>Аудио, видео, изображения и документы. Нажмите для выбора или перетащите файлы сюда.</span>
       </button>
       <div className="meeting-recorder" role="status" data-tour-target="meeting-recording">
         <button type="button" className={`meeting-materials__dictation ${recording ? "recording" : ""}`} disabled={busy} onClick={recording ? stopRecording : startRecording} aria-label={recording ? "Остановить запись встречи" : "Записать встречу с микрофона"}>{recording ? <Square size={16} /> : <Mic size={17} />}{recording ? "Остановить запись" : "Записать встречу"}</button>
         {recording ? <><span>Идёт запись · {Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, "0")}</span><span className="meeting-materials__voice-meter" role="meter" aria-label="Уровень микрофона" aria-valuenow={recordingLevel} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${recordingLevel}%` }} /></span></> : <span>Запись автоматически станет материалом новой встречи.</span>}
       </div>
-      {mediaFiles.length > 0 && <ul className="media-selection">{mediaFiles.map((item, index) => <li key={`${item.name}-${index}`}>{mediaFileKind(item) === "video" ? <FileVideo size={16} /> : <FileAudio size={16} />}<span>{item.name}</span><small>{mediaFileKind(item) === "video" ? "Видео" : "Аудио"}</small></li>)}</ul>}
+      {mediaFiles.length > 0 && <ul className="media-selection">{mediaFiles.map((item, index) => <li key={`${item.name}-${index}`}>{mediaFileKind(item) === "video" ? <FileVideo size={16} /> : mediaFileKind(item)==='audio'?<FileAudio size={16}/>:<FileText size={16}/>}<span>{item.name}</span><small>{{video:'Видео',audio:'Аудио',image:'Изображение',document:'Документ'}[meetingAttachmentKind(item)||'document']}</small></li>)}</ul>}
       {mediaFiles.some((item) => mediaFileKind(item) === "video") && <p className="local-preparation"><CheckCircle2 size={15} /> Аудио из видео извлекается локально на сервере; исходное видео в AI не передаётся.</p>}
+      </>}</section>
       <label className="cloud-check"><input type="checkbox" checked={form.illustrations} onChange={e=>setForm({...form,illustrations:e.target.checked})}/>Добавлять AI-иллюстрации, если они поясняют результат</label>
       {error && <p className="error">{error}</p>}
       {/ключ|лимит/i.test(error)&&<><AdminLink meetingId={createdMeetingId.current||undefined}/><p>Текст и параметры сохранены. После возвращения выберите локальный файл заново, если браузер его сбросит.</p></>}
@@ -1029,10 +1044,10 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
         <button
           data-tour-target="meeting-analyze"
           className="primary"
-          disabled={busy || (!form.notes.trim() && !mediaFiles.length)}
+          disabled={busy || recording || (form.source==='link'?!form.cloudUrl.trim():!form.notes.trim()&&!mediaFiles.length)}
           onClick={create}
         >
-          {busy ? <RefreshCw className="spin" /> : "Анализировать материалы"}
+          {busy ? <RefreshCw className="spin" /> : "Создать встречу и анализировать"}
           <ArrowUpRight size={16} />
         </button>
         <span>Состояние обработки появится в карточке встречи.</span>
@@ -4513,7 +4528,6 @@ function App() {
         onView={navigateToView}
       />
       <Usage orgId={org.id}/>
-      <ImportMaterial org={org} onOpen={id=>{setSelected(id);void api<Meeting[]>(`/meetings?organizationId=${org.id}`).then(setMeetings);}}/>
       {['OWNER','ADMIN'].includes(current.role)&&<MainCloudConnections orgId={org.id}/>}
       {user.email.endsWith('@demo.stenograf.local')&&!['OWNER','ADMIN'].includes(current.role)&&<p><a href={location.pathname+'?surface=admin&section=cloud'}>Настроить облачные папки и режим «Файл / папка — встреча»</a> · пароль демо-админки: 1234</p>}
       <div className="metrics">

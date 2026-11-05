@@ -28,6 +28,11 @@ try{
  assert.equal((await request('/cloud/accounts?organizationId='+org,null,browsers[0],a.token)).status,403);
  const before=(await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data;
  assert.equal(before.remaining,3);
+ const originalMeeting=await db.meeting.findUniqueOrThrow({where:{id:own[0].id}});
+ const deferred=await request('/meetings',{organizationId:org,departmentId:originalMeeting.departmentId,templateId:originalMeeting.templateId,title:'Материалы новой встречи',notes:'Контекст до загрузки файла',deferAnalysis:true},browsers[0],a.token);
+ assert.equal(deferred.status,200);assert.equal(deferred.data.state,'DRAFT');assert.equal(deferred.data.transcript.text,'Контекст до загрузки файла');
+ assert.equal(await db.analysisVersion.count({where:{meetingId:deferred.data.id}}),0);
+ assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.remaining,3);
  const bad=await request('/materials/import',{organizationId:org,url:'https://127.0.0.1/private'},browsers[0],a.token);
  assert.equal(bad.status,400);
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],b.token)).data.remaining,3);
