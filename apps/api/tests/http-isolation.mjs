@@ -74,6 +74,9 @@ try{
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.remaining,3);
  assert.equal((await reportUpload(second[0].id)).status,403);
  assert.equal((await reportUpload(own[0].id,'invalid.txt')).status,400);
+ const deniedDictation=new FormData();deniedDictation.append('audio',new Blob(['synthetic fixture'],{type:'audio/webm'}),'fixture.webm');
+ const deniedVoice=await fetch(origin+'/meetings/'+second[0].id+'/chat-dictation',{method:'POST',headers:{Authorization:'Bearer '+a.token,'x-demo-browser':browsers[0]},body:deniedDictation});
+ assert.equal(deniedVoice.status,404);assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.remaining,3);
  const dev=await fetch(origin+'/developer/multimodal',{headers:{'x-dev-password':'1234'}});
  assert.equal(dev.status,200); // Explicit owner override: keep 1234 for Dev for now.
  console.log(JSON.stringify({browserIsolation:true,departmentIsolation:true,adminSeparation:true,cloudMainSettingIsolation:true,reportUploadWithoutAI:true,invalidLinkDoesNotSpend:true,fiveProviders:true,devPassword1234:true}));

@@ -48,6 +48,8 @@ import {
 import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from "./api";
 import KnowledgeTransfer from "./KnowledgeTransfer";
 import CloudStorageCheck from "./CloudStorageCheck";
+import ChatComposer,{useVoiceInput,transcribeVoice,VoiceMeter} from "./VoiceInput";
+import {appendDictation} from "./voice-dictation";
 import ServerRemoval from "./ServerRemoval";
 import {AdminLink,Usage,ImportMaterial,CloudFolders,MainCloudConnections,DeveloperCloud,MaterialGallery,VersionPanel} from './CloudWorkspace';
 import meetingsEditorial from "./assets/meetings-editorial.png";
@@ -1236,10 +1238,6 @@ function MeetingDetail({
     [openMaterialsSection, setOpenMaterialsSection] = useState<"files" | "text" | null>(null),
     [uploadOpen, setUploadOpen] = useState(false),
     [materialDragging, setMaterialDragging] = useState(false),
-    [dictationState, setDictationState] = useState<"idle" | "recording" | "transcribing">("idle"),
-    [dictationSeconds, setDictationSeconds] = useState(0),
-    [dictationLevel, setDictationLevel] = useState(0),
-    [dictationError, setDictationError] = useState(""),
     [materialMode, setMaterialMode] = useState<"append" | "replace">(() => readMaterialMode(id)),
     [materialBusy, setMaterialBusy] = useState(false),
     [materialMessage, setMaterialMessage] = useState(""),
@@ -1250,44 +1248,10 @@ function MeetingDetail({
     [fileDeleteError, setFileDeleteError] = useState(""),
     [busy, setBusy] = useState(false);
   const materialInputRef = useRef<HTMLInputElement>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const meterFrameRef = useRef<number | null>(null);
-  const dictationGenerationRef = useRef(0);
-  const stopMicrophone = () => {
-    if (meterFrameRef.current !== null) cancelAnimationFrame(meterFrameRef.current);
-    meterFrameRef.current = null;
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    void audioContextRef.current?.close();
-    audioContextRef.current = null;
-    setDictationLevel(0);
-  };
-  useEffect(() => {
-    return () => {
-      dictationGenerationRef.current += 1;
-      recorderRef.current?.stop();
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      void audioContextRef.current?.close();
-      if (meterFrameRef.current !== null) cancelAnimationFrame(meterFrameRef.current);
-    };
-  }, [id]);
-  useEffect(() => {
-    if (dictationState !== "recording") return;
-    const timer = window.setInterval(() => setDictationSeconds((seconds) => seconds + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [dictationState]);
-  const changeTab = (next: string) => {
-    if (next !== "materials" && dictationState !== "idle") {
-      dictationGenerationRef.current += 1;
-      if (recorderRef.current?.state === "recording") recorderRef.current.stop();
-      stopMicrophone();
-      setDictationState("idle");
-    }
-    sessionStorage.setItem(`secretary-meeting-tab:${id}`, next);
-    setTab(next);
-  };
+  const materialVoice=useVoiceInput(id+':'+tab+':'+openMaterialsSection,text=>setMeetingText(current=>appendDictation(current,text)),(blob,signal)=>transcribeVoice(id,blob,signal));
+  const {state:dictationState,seconds:dictationSeconds,level:dictationLevel,error:dictationError}=materialVoice;
+  const startDictation=materialVoice.start,stopDictation=()=>materialVoice.stop();
+  const changeTab = (next: string) => {materialVoice.cancel();sessionStorage.setItem(`secretary-meeting-tab:${id}`,next);setTab(next);};
   const changeMaterialMode = (next: "append" | "replace") => {
     sessionStorage.setItem(`secretary-material-mode:${id}`, next);
     setMaterialMode(next);
@@ -1305,64 +1269,6 @@ function MeetingDetail({
     }
     setMaterialFile(file);
     setMaterialMessage("");
-  };
-  const startDictation = async () => {
-    if (dictationState !== "idle") return;
-    setDictationError("");
-    const generation = ++dictationGenerationRef.current;
-    try {
-      if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error("Запись с микрофона недоступна в этом браузере.");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (generation !== dictationGenerationRef.current) { stream.getTracks().forEach((track) => track.stop()); return; }
-      streamRef.current = stream;
-      const chunks: Blob[] = [];
-      const recorder = new MediaRecorder(stream, MediaRecorder.isTypeSupported("audio/webm") ? { mimeType: "audio/webm" } : undefined);
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
-      recorder.onstop = async () => {
-        stopMicrophone();
-        if (generation !== dictationGenerationRef.current) return;
-        if (!chunks.length) { setDictationState("idle"); setDictationError("Речь не записалась. Попробуйте ещё раз."); return; }
-        setDictationState("transcribing");
-        try {
-          const file = new File(chunks, "диктовка.webm", { type: recorder.mimeType || "audio/webm" });
-          const result = await audio(`/meetings/${id}/dictation`, file) as { text: string };
-          if (generation !== dictationGenerationRef.current) return;
-          if (!result.text?.trim()) throw new Error("Речь не удалось распознать. Попробуйте ещё раз.");
-          setMeetingText((current) => [current.trim(), result.text.trim()].filter(Boolean).join("\n\n"));
-        } catch (error) {
-          if (generation === dictationGenerationRef.current) setDictationError(error instanceof Error ? error.message : "Не удалось распознать речь.");
-        } finally {
-          if (generation === dictationGenerationRef.current) setDictationState("idle");
-        }
-      };
-      recorder.start();
-      setDictationSeconds(0);
-      setDictationLevel(3);
-      setDictationState("recording");
-      try {
-        const context = new AudioContext();
-        audioContextRef.current = context;
-        const analyser = context.createAnalyser();
-        analyser.fftSize = 512;
-        context.createMediaStreamSource(stream).connect(analyser);
-        const samples = new Uint8Array(analyser.fftSize);
-        const measure = () => {
-          analyser.getByteTimeDomainData(samples);
-          const rms = Math.sqrt(samples.reduce((total, sample) => total + ((sample - 128) / 128) ** 2, 0) / samples.length);
-          setDictationLevel(Math.max(3, Math.min(100, Math.round(rms * 260))));
-          meterFrameRef.current = requestAnimationFrame(measure);
-        };
-        measure();
-      } catch { /* Recording still works without the level meter. */ }
-    } catch (error) {
-      stopMicrophone();
-      setDictationState("idle");
-      setDictationError(error instanceof Error ? error.message : "Не удалось открыть микрофон.");
-    }
-  };
-  const stopDictation = () => {
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
   };
   const load = () =>
     api<any>(`/meetings/${id}`).then((x) => {
@@ -1517,11 +1423,11 @@ function MeetingDetail({
       ),
     });
   };
-  const ask = async () => {
-    if (!message.trim() || busy) return;
+  const ask = async (override?:string) => {
+    if (!(override??message).trim() || busy) return;
     setBusy(true);
     setChatError("");
-    const text = message.trim();
+    const text = (override??message).trim();
     setMessage("");
     try {
       const r = await api<{ answer: string }>(`/meetings/${id}/chat`, {
@@ -1535,7 +1441,7 @@ function MeetingDetail({
       ]);
     } catch (error) {
       setChatError(error instanceof Error ? error.message : "AI-бот не смог ответить. Повторите попытку.");
-      setMessage((current) => current || text);
+      setMessage((current) => appendDictation(text,current));
     } finally {
       setBusy(false);
     }
@@ -1708,16 +1614,9 @@ function MeetingDetail({
             </div>
             {busy && <p className="chat-status" role="status">AI изучает материалы встречи…</p>}
             {chatError && <p className="chat-error" role="alert">{chatError}</p>}
-            <div className="ask">
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Например, какой срок у аудита ролей?"
-              />
-              <button onClick={ask} disabled={busy}>
-                <Send size={16} />
-              </button>
-            </div>
+            <ChatComposer key={id+'-'+m.activeVersionId} meetingId={id} value={message} onChange={setMessage} onSend={ask} busy={busy} hasKey={!!m.hasTranscriptionKey} onNeedKey={()=>setChatError('Для голосового ввода нужен ключ OpenAI. Добавьте его в админке.')}/>
+            {/ключ/i.test(chatError)&&<AdminLink meetingId={id}/>}
+
           </aside>
         </div>
       )}
@@ -1776,10 +1675,10 @@ function MeetingDetail({
               <p>Текст будет обработан без распознавания файла. Текущая расшифровка заменится после отправки.</p>
               <textarea className="meeting-materials__text" value={meetingText} onChange={(event) => setMeetingText(event.target.value)} placeholder="Вставьте текст встречи…" />
               <div className="meeting-materials__text-actions">
-                <button type="button" className={`meeting-materials__dictation ${dictationState === "recording" ? "recording" : ""}`} disabled={dictationState === "transcribing" || !m.hasTranscriptionKey} onClick={dictationState === "recording" ? stopDictation : startDictation} aria-label={dictationState === "recording" ? "Остановить диктовку" : "Добавить текст голосом"}>{dictationState === "recording" ? <Square size={15} /> : <Mic size={16} />}{dictationState === "recording" ? "Остановить запись" : dictationState === "transcribing" ? "Распознаём…" : "Добавить голосом"}</button>
+                <button type="button" className={`meeting-materials__dictation ${dictationState === "recording" ? "recording" : ""}`} disabled={dictationState === "transcribing" || !m.hasTranscriptionKey} onClick={dictationState === "starting"?materialVoice.cancel:dictationState === "recording" ? stopDictation : startDictation} aria-label={dictationState === "recording" ? "Остановить диктовку" : "Добавить текст голосом"}>{dictationState === "recording" ? <Square size={15} /> : <Mic size={16} />}{dictationState === "recording" ? "Остановить запись" : dictationState === "transcribing" ? "Распознаём…" : dictationState === "starting"?"Отменить включение":"Добавить голосом"}</button>
                 <button className="primary" disabled={!meetingText.trim() || materialBusy || dictationState !== "idle"} onClick={processMeetingText}>Обработать текст</button>
               </div>
-              {dictationState === "recording" && <div className="meeting-materials__voice-status" role="status"><span>Запись {Math.floor(dictationSeconds / 60)}:{String(dictationSeconds % 60).padStart(2, "0")}</span><span className="meeting-materials__voice-meter" role="meter" aria-label="Уровень микрофона" aria-valuenow={dictationLevel} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${dictationLevel}%` }} /></span></div>}
+              {dictationState === "recording" && <div className="meeting-materials__voice-status"><VoiceMeter seconds={dictationSeconds} level={dictationLevel}/></div>}
               {!m.hasTranscriptionKey && <p className="meeting-materials__warning">Для диктовки нужен ключ расшифровки организации. Текст можно вставить вручную.</p>}
               {dictationError && <p className="meeting-materials__error" role="alert">{dictationError}</p>}
               {materialMessage && <p role="status" className="meeting-materials__message">{materialMessage}</p>}

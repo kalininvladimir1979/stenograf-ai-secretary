@@ -118,7 +118,7 @@ async function auth(req: Authed, res: Response, next: NextFunction) {
         (req.path.startsWith("/tasks") && req.query.calendar !== "1" && !config.features.tasks) ||
         (req.path.startsWith("/notifications") && !config.features.notifications) ||
         (req.path.endsWith("/chat") && !config.features.chat) ||
-        ((req.path.endsWith("/retry") || req.path.endsWith("/text") || req.path.endsWith("/audio") || req.path.endsWith("/video") || req.path.endsWith("/dictation")) && req.method === "POST" && !config.features.analysis);
+        ((req.path.endsWith("/retry") || req.path.endsWith("/text") || req.path.endsWith("/audio") || req.path.endsWith("/video") || req.path.endsWith("/dictation") || req.path.endsWith("/chat-dictation")) && req.method === "POST" && !config.features.analysis);
       if (blocked) return res.status(403).json({ error: "Функция выключена в демо-режиме." });
     }
     req.user = payload;
@@ -1214,13 +1214,14 @@ function enqueueMeetingMedia(meetingId: string, task: () => Promise<void>) {
     if (meetingMediaQueues.get(meetingId) === current) meetingMediaQueues.delete(meetingId);
   }).catch((error) => console.error("Media processing failed:", error));
 }
-app.post("/meetings/:id/dictation", auth, upload.single("audio"), async (req: Authed, res) => {
+app.post(["/meetings/:id/dictation","/meetings/:id/chat-dictation"], auth, upload.single("audio"), async (req: Authed, res) => {
   const recording = req.file;
   if (!recording) return res.status(400).json({ error: "Запись не получена." });
   try {
     const meeting = await db.meeting.findUnique({ where: { id: req.params.id } });
-    if (!meeting || !(await meetingAccess(req.user!.id, meeting)).editor)
-      return res.status(404).json({ error: "Встреча не найдена" });
+    if (!meeting) return res.status(404).json({error:"Встреча не найдена"});
+    const access=await meetingAccess(req.user!.id,meeting);
+    if (!(req.path.endsWith("/chat-dictation")?access.allowed:access.editor))return res.status(404).json({error:"Встреча не найдена"});
     const text = await transcribeLongAudio(recording.path, meeting.organizationId);
     res.json({ text });
   } catch (error) {
