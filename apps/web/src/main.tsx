@@ -1497,30 +1497,33 @@ function MeetingDetail({
           </div>
         </div>
       )}
-      <div className="tabs" data-tour-target="meeting-results">
+      <nav className="tabs meeting-tabs" aria-label="Разделы встречи" data-tour-target="meeting-results">
         <button
           className={tab === "result" ? "active" : ""}
+          aria-current={tab==='result'?'true':undefined}
           onClick={() => changeTab("result")}
         >
-          Результат
+          <BookOpen size={15} aria-hidden="true"/>Результат
         </button>
         <button
           className={tab === "transcript" ? "active" : ""}
+          aria-current={tab==='transcript'?'true':undefined}
           onClick={() => changeTab("transcript")}
         >
-          Расшифровка
+          <Type size={15} aria-hidden="true"/>Расшифровка
         </button>
-        <button className={tab === "materials" ? "active" : ""} onClick={() => changeTab("materials")}>Материалы</button>
-        {sources.length > 0 && <button className={tab === "sources" ? "active" : ""} onClick={() => changeTab("sources")}>Источники ({sources.length})</button>}
+        <button aria-current={tab==='materials'?'true':undefined} className={tab === "materials" ? "active" : ""} onClick={() => changeTab("materials")}><FileAudio size={15} aria-hidden="true"/>Материалы</button>
+        {sources.length > 0 && <button aria-label={`Источники (${sources.length})`} aria-current={tab==='sources'?'true':undefined} className={tab === "sources" ? "active" : ""} onClick={() => changeTab("sources")}><Workflow size={15} aria-hidden="true"/>Источники <span className="meeting-tabs__count">{sources.length}</span></button>}
         {m.canManageInvites && (
           <button
             className={tab === "invite" ? "active" : ""}
+            aria-current={tab==='invite'?'true':undefined}
             onClick={() => changeTab("invite")}
           >
-            Доступ и приглашения
+            <Users size={15} aria-hidden="true"/>Доступ и приглашения
           </button>
         )}
-      </div>
+      </nav>
       {tab === "result" && (
         <div className="result-layout">
           <div className="results">
@@ -1624,7 +1627,7 @@ function MeetingDetail({
       )}
       {tab==='result'&&<VersionPanel key={m.activeVersionId+'-'+m.processingStage} meetingId={id} reload={()=>void load()}/>}
       {tab==='materials'&&<><ImportMaterial org={org} meetingId={id}/><MaterialGallery orgId={org.id} meetingId={id}/></>}
-      {tab === "transcript" && m.canEdit&&<label className="cloud-panel">Редактировать транскрипт<textarea className="meeting-materials__text" defaultValue={m.transcript?.text||''} onBlur={async e=>{if(e.target.value!==m.transcript?.text){await api(`/meetings/${id}/transcript`,{method:'PUT',body:JSON.stringify({text:e.target.value})});void load();}}}/><small>Изменения сохраняются при выходе из поля. Повторный анализ создаст отдельную версию результата.</small></label>}
+      {tab === "transcript" && m.canEdit&&<section className="transcript-editor" aria-labelledby="transcript-editor-title"><div className="transcript-editor__heading"><Pencil size={19} aria-hidden="true"/><div><h2 id="transcript-editor-title">Редактировать расшифровку</h2><p>Проверьте распознанный текст и внесите правки.</p></div></div><textarea className="transcript-editor__input" aria-label="Текст расшифровки" aria-describedby="transcript-editor-hint" defaultValue={m.transcript?.text||''} onBlur={async e=>{if(e.target.value!==m.transcript?.text){await api(`/meetings/${id}/transcript`,{method:'PUT',body:JSON.stringify({text:e.target.value})});void load();}}}/><p className="transcript-editor__hint" id="transcript-editor-hint"><CheckCircle2 size={14} aria-hidden="true"/><span>Изменения сохраняются при выходе из поля. Повторный анализ создаст отдельную версию результата.</span></p></section>}
       {tab === "transcript" && (
         m.state === "PROCESSING" && !m.transcript?.text
           ? <section className="transcript"><h2>Расшифровка</h2><ProcessingPanel kind="transcript" startedAt={m.processingStartedAt || m.updatedAt} /></section>
