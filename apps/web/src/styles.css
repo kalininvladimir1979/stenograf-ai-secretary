@@ -131,14 +131,18 @@ textarea::placeholder {
   top: 0;
   z-index: 20;
   height: 58px;
-  background: #181716;
+  background: rgba(24, 23, 22, .76);
+  background-image: none;
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  backdrop-filter: blur(24px) saturate(1.2);
   color: #eee9df;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   padding: 0 38px;
   gap: 24px;
-  border-bottom: 1px solid #34312c;
+  border-bottom: 1px solid rgba(255, 249, 239, .16);
+  box-shadow: 0 6px 22px rgba(20, 16, 12, .12);
 }
 .brand {
   font-family: "Playfair Display", serif;
@@ -3641,3 +3645,8 @@ select option {
 
 .transcript-reading{max-width:900px}.transcript-reading .transcript-document__cover{padding:26px 32px;background:var(--panel)}.transcript-reading__heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}.transcript-reading .transcript-document__cover h2{margin:0 0 9px;font-size:28px;line-height:1.25}.transcript-reading__heading>div{flex:1 1 300px;min-width:0}.transcript-reading__heading>button{flex:none;min-height:38px}.transcript-reading .transcript-document__cover p{font-size:12px;overflow-wrap:anywhere}.transcript-reading .transcript-document__chapter{padding:28px 32px 34px}.transcript-reading .transcript-document__prose{margin-left:0;max-width:72ch}.transcript-reading .transcript-document__prose p{font-size:15px;line-height:1.9;margin-bottom:20px}.transcript-reading__source{font-size:12px;color:var(--muted);margin:0 0 20px;overflow-wrap:anywhere}.transcript-reading__editor{padding:24px 32px}.transcript-reading__help{font-size:12px;color:var(--muted);line-height:1.6;margin:0 0 22px}.transcript-reading__edit-part{display:grid;gap:9px;margin-bottom:22px}.transcript-reading__edit-part strong{font:500 20px/1.3 "Playfair Display",serif}.transcript-reading__edit-part small{font-size:12px;color:var(--muted)}.transcript-reading__edit-part textarea{display:block;box-sizing:border-box;width:100%;min-width:0;min-height:240px;padding:14px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;font-size:14px;line-height:1.8;resize:vertical}.transcript-reading .transcript-document__cover .transcript-reading__saved{display:flex;align-items:center;gap:6px;margin-top:12px;color:var(--wine)}
 @media(max-width:640px){.transcript-reading .transcript-document__cover,.transcript-reading .transcript-document__chapter,.transcript-reading__editor{padding:22px 20px}.transcript-reading .transcript-document__cover h2{font-size:25px}.transcript-reading .transcript-document__prose p{font-size:14px}.transcript-reading__heading{gap:12px}}
+
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.top{background:#181716}}
+@media(prefers-reduced-transparency:reduce){.top{background:#181716;-webkit-backdrop-filter:none;backdrop-filter:none}}
+@media(max-width:640px){.top{-webkit-backdrop-filter:blur(18px) saturate(1.15);backdrop-filter:blur(18px) saturate(1.15)}}
+@media(max-width:640px) and (prefers-reduced-transparency:reduce){.top{-webkit-backdrop-filter:none;backdrop-filter:none}}
