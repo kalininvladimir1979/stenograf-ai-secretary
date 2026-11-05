@@ -32,8 +32,8 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   await db.membership.create({data:{organizationId:org.id,userId:user.id,departmentId:dept.id,role:'OWNER'}});
   await db.meetingTemplate.create({data:{organizationId:org.id,name:'Test',description:'',instructions:'',fields:[]}});
   await db.demoSpace.create({data:{organizationId:org.id,browserHash:tag}});
-  let providerCalls=0,failNext=false;
-  const service=installMultimodal({app:express(),db,startWorker:false,auth:()=>{},protectedDev:()=>{},member:async()=>({departmentId:dept.id}),meetingAccess:async()=>({allowed:true,editor:true}),setting:async(k:string)=>k==='demo_ai_limit'?'3':'',meetingOpenAiKey:async()=>({key:'test-key'}),uploadRoot:path.join(temp,'audio'),rawProviderGenerate:async(args:any)=>{providerCalls++;if(failNext){failNext=false;throw Error('Simulated provider outage');}if(args.operation==='image_generate')return {data:{data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9WQAAAAASUVORK5CYII='}]}};if(args.payload?.text?.format?.type==='json_object')return {data:{output_text:JSON.stringify({valid:false,unsupported:['Неподтверждённый дополнительный этап']})}};return {data:{output_text:'Confirmed test answer'}};},responseText:(x:any)=>x.output_text});
+  let providerCalls=0,failNext=false,validIllustration=false;
+  const service=installMultimodal({app:express(),db,startWorker:false,auth:()=>{},protectedDev:()=>{},member:async()=>({departmentId:dept.id}),meetingAccess:async()=>({allowed:true,editor:true}),setting:async(k:string)=>k==='demo_ai_limit'?'3':'',meetingOpenAiKey:async()=>({key:'test-key'}),uploadRoot:path.join(temp,'audio'),rawProviderGenerate:async(args:any)=>{providerCalls++;if(failNext){failNext=false;throw Error('Simulated provider outage');}if(args.operation==='image_generate')return {data:{data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9WQAAAAASUVORK5CYII='}]}};if(args.payload?.text?.format?.type==='json_object')return {data:{output_text:JSON.stringify({valid:validIllustration,unsupported:validIllustration?[]:['Неподтверждённый дополнительный этап']})}};return {data:{output_text:'Confirmed test answer'}};},responseText:(x:any)=>x.output_text});
   await service.reserve(org.id,tag+'same');await service.reserve(org.id,tag+'same');
   assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,1);
   const attempts=await Promise.allSettled(Array.from({length:8},(_,i)=>service.reserve(org.id,tag+i)));
@@ -64,6 +64,17 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   assert.match((await db.analysisVersion.findUniqueOrThrow({where:{id:nextVersion.id}})).illustrationError||'',/исключена из экспорта/);
   assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,1);
   await assert.rejects(()=>service.createIllustration({id:one.meetingId,organizationId:org.id},nextVersion,tag+'image2','Повтор'),/предел иллюстраций/);
+  const meeting=await db.meeting.findUniqueOrThrow({where:{id:one.meetingId}});
+  await assert.rejects(()=>service.createIllustration(meeting,nextVersion,tag+'invalid-replace','Новый вариант','foreign-image'),/не найдена/);
+  assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,1);
+  await assert.rejects(()=>service.createIllustration(meeting,nextVersion,tag+'unsafe-replace','Новый вариант',image.id),/Предыдущее изображение сохранено/);
+  assert.equal((await db.reportImage.findUniqueOrThrow({where:{id:image.id}})).localPath,image.localPath);
+  await fs.access(image.localPath);
+  validIllustration=true;
+  const replaced=await service.createIllustration(meeting,nextVersion,tag+'safe-replace','Показать подтверждённые этапы слева направо',image.id);
+  assert.equal(replaced.id,image.id);assert.notEqual(replaced.localPath,image.localPath);assert.equal(replaced.needsReview,false);
+  assert.equal(await db.reportImage.count({where:{versionId:nextVersion.id}}),1);
+  await assert.rejects(()=>fs.access(image.localPath));await fs.access(replaced.localPath);
  }finally{
   if(org){await db.processingJob.deleteMany({where:{organizationId:org.id}});await db.material.deleteMany({where:{organizationId:org.id}});await db.cloudFolder.deleteMany({where:{organizationId:org.id}});await db.aiOperation.deleteMany({where:{organizationId:org.id}});await db.demoSpace.deleteMany({where:{organizationId:org.id}});await db.organization.delete({where:{id:org.id}});await db.user.deleteMany({where:{email:'test-'+tag+'@example.invalid'}});}
   await db.$disconnect();

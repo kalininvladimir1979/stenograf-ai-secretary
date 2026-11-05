@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {PrismaClient} from '@prisma/client';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 const origin=process.env.TEST_API_URL||'http://localhost:3002';
 const browsers=[randomUUID(),randomUUID()];
 async function request(path,body,browser,token,method=body?'POST':'GET'){
@@ -43,10 +45,18 @@ try{
  assert.equal((await request('/cloud/main-settings?organizationId='+orgs[1],null,browsers[1],foreignAdmin.token)).data.enabled,true);
  const providers=(await request('/cloud/providers',null,browsers[0],admin.token)).data;
  assert.equal(providers.length,5);
+ const version=await db.analysisVersion.create({data:{meetingId:own[0].id,number:1,state:'applied',result:{summary:'Fixture'},snapshot:{}}});
+ await db.meeting.update({where:{id:own[0].id},data:{activeVersionId:version.id,summary:'Fixture'}});
+ const reportUpload=async(meetingId,name='chart.png')=>{const form=new FormData();form.append('file',new Blob([await fs.readFile('test-data/implementation-chart.png')],{type:'image/png'}),name);return fetch(origin+'/meetings/'+meetingId+'/report-images/upload',{method:'POST',headers:{Authorization:'Bearer '+a.token,'x-demo-browser':browsers[0]},body:form});};
+ const uploaded=await reportUpload(own[0].id);assert.equal(uploaded.status,201);const reportImage=await uploaded.json();assert.equal(reportImage.origin,'uploaded');
+ assert.equal((await db.material.findUniqueOrThrow({where:{id:reportImage.materialId}})).selected,false);
+ assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.remaining,3);
+ assert.equal((await reportUpload(second[0].id)).status,403);
+ assert.equal((await reportUpload(own[0].id,'invalid.txt')).status,400);
  const dev=await fetch(origin+'/developer/multimodal',{headers:{'x-dev-password':'1234'}});
  assert.equal(dev.status,200); // Explicit owner override: keep 1234 for Dev for now.
- console.log(JSON.stringify({browserIsolation:true,departmentIsolation:true,adminSeparation:true,cloudMainSettingIsolation:true,invalidLinkDoesNotSpend:true,fiveProviders:true,devPassword1234:true}));
+ console.log(JSON.stringify({browserIsolation:true,departmentIsolation:true,adminSeparation:true,cloudMainSettingIsolation:true,reportUploadWithoutAI:true,invalidLinkDoesNotSpend:true,fiveProviders:true,devPassword1234:true}));
 }finally{
- for(const organizationId of orgs){const users=await db.membership.findMany({where:{organizationId},select:{userId:true}});await db.processingJob.deleteMany({where:{organizationId}});await db.material.deleteMany({where:{organizationId}});await db.aiOperation.deleteMany({where:{organizationId}});await db.demoSpace.deleteMany({where:{organizationId}});await db.devSetting.deleteMany({where:{organizationId}});await db.organization.delete({where:{id:organizationId}});await db.user.deleteMany({where:{id:{in:users.map(x=>x.userId)}}});}
+ for(const organizationId of orgs){const materials=await db.material.findMany({where:{organizationId}}),images=await db.reportImage.findMany({where:{organizationId}});const files=new Set([...materials.map(m=>m.localPath),...images.map(i=>i.localPath)].filter(Boolean));const users=await db.membership.findMany({where:{organizationId},select:{userId:true}});await db.processingJob.deleteMany({where:{organizationId}});await db.material.deleteMany({where:{organizationId}});await db.aiOperation.deleteMany({where:{organizationId}});await db.demoSpace.deleteMany({where:{organizationId}});await db.devSetting.deleteMany({where:{organizationId}});await db.organization.delete({where:{id:organizationId}});await db.user.deleteMany({where:{id:{in:users.map(x=>x.userId)}}});for(const file of files)if(path.resolve(file).startsWith(path.resolve('storage')+path.sep))await fs.unlink(file).catch(()=>{});}
  await db.$disconnect();
 }

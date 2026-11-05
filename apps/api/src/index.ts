@@ -1541,7 +1541,7 @@ app.get("/meetings/:id/export", auth, async (req: Authed, res) => {
     doc.fontSize(10).text(body || "—");
   }
   const reportImages=await db.reportImage.findMany({where:{meetingId:meeting.id,versionId:meeting.activeVersionId||'none',included:true},orderBy:{position:'asc'}});
-  for(const image of reportImages){try{const bytes=await fs.readFile(image.localPath);doc.addPage().fontSize(12).text((image.origin==='generated'?'Создано AI для пояснения':'Исходное изображение')+(image.needsReview?' · Требуется проверка':''));doc.moveDown().fontSize(10).text(image.caption);doc.image(bytes,{fit:[490,570],align:'center'});}catch{doc.moveDown().fontSize(10).text('Изображение недоступно: '+image.caption);}}
+  for(const image of reportImages){try{const bytes=await fs.readFile(image.localPath);doc.addPage().fontSize(12).text((image.origin==='generated'?'Создано AI для пояснения':image.origin==='uploaded'?'Загружено пользователем для отчёта':'Исходное изображение')+(image.needsReview?' · Требуется проверка':''));doc.moveDown().fontSize(10).text(image.caption);doc.image(bytes,{fit:[490,570],align:'center'});}catch{doc.moveDown().fontSize(10).text('Изображение недоступно: '+image.caption);}}
   doc.end();
 });
 app.post("/meetings/:id/invites", auth, async (req: Authed, res) => {
