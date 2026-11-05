@@ -1590,6 +1590,8 @@ function MeetingDetail({
                   <TaskEditor
                     key={t.id}
                     task={t}
+                    meetingId={id}
+                    hasKey={!!m.hasTranscriptionKey}
                     people={people}
                     statuses={org.taskStatuses}
                     updateTask={updateTask}
@@ -1697,26 +1699,29 @@ function MeetingDetail({
 
 function TaskEditor({
   task,
+  meetingId,
+  hasKey,
   people,
   statuses,
   updateTask,
   onComment,
 }: {
   task: any;
+  meetingId: string;
+  hasKey: boolean;
   people: any[];
   statuses: any[];
   updateTask: (id: string, payload: Record<string, unknown>) => Promise<void>;
   onComment: () => void;
 }) {
-  const [comment, setComment] = useState("");
-  const addComment = async () => {
-    if (!comment.trim()) return;
-    await api(`/tasks/${task.id}/comments`, {
-      method: "POST",
-      body: JSON.stringify({ body: comment }),
-    });
-    setComment("");
-    onComment();
+  const [comment,setComment]=useState(''),[commentBusy,setCommentBusy]=useState(false),[commentError,setCommentError]=useState('');
+  const postingComment=useRef(false);
+  const addComment=async(override?:string)=>{
+    const text=(override??comment).trim();if(!text||postingComment.current)return;
+    postingComment.current=true;setCommentBusy(true);setCommentError('');setComment('');
+    try{await api(`/tasks/${task.id}/comments`,{method:'POST',body:JSON.stringify({body:text})});void Promise.resolve(onComment()).catch(()=>setCommentError('Комментарий отправлен. Обновите встречу, чтобы увидеть его.'));}
+    catch(error){setComment(current=>appendDictation(text,current));setCommentError(error instanceof Error?error.message:'Не удалось отправить комментарий. Текст сохранён, повторите попытку.');}
+    finally{postingComment.current=false;setCommentBusy(false);}
   };
   return (
     <div className="task-row" data-tour-target="meeting-task-editor">
@@ -1759,16 +1764,7 @@ function TaskEditor({
             <b>{item.author.name}:</b> {item.body}
           </p>
         ))}
-        <div className="comment-entry">
-          <input
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            placeholder="Добавить комментарий"
-          />
-          <button onClick={addComment} aria-label="Отправить комментарий">
-            <Send size={12} />
-          </button>
-        </div>
+        <div className="task-comment-input"><ChatComposer key={task.id} meetingId={meetingId} contextKey={'task-comment:'+task.id} mode="comment" inputLabel={`Комментарий к поручению «${task.title}»`} value={comment} onChange={setComment} onSend={addComment} busy={commentBusy} hasKey={hasKey} onNeedKey={()=>setCommentError('Для голосового ввода нужен ключ OpenAI. Добавьте его в админке.')}/>{commentError&&<p className="task-comment-input__error" role="alert">{commentError}</p>}{/ключ/i.test(commentError)&&<AdminLink meetingId={meetingId}/>}</div>
       </div>
       <select
         className="tag"

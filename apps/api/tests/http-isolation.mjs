@@ -74,6 +74,12 @@ try{
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.remaining,3);
  assert.equal((await reportUpload(second[0].id)).status,403);
  assert.equal((await reportUpload(own[0].id,'invalid.txt')).status,400);
+ const commentStatus=await db.taskStatus.findFirstOrThrow({where:{organizationId:org,key:'DRAFT'}});
+ const commentTask=await db.task.create({data:{meetingId:own[0].id,title:'Private comment fixture',statusId:commentStatus.id}});
+ const addedComment=await request('/tasks/'+commentTask.id+'/comments',{body:'Синтетический комментарий для проверки поля'},browsers[0],a.token);
+ assert.equal(addedComment.status,200);assert.equal(addedComment.data.authorId,a.user.id);assert.equal(addedComment.data.taskId,commentTask.id);
+ assert.equal((await request('/tasks/'+commentTask.id+'/comments',{body:'Запрещённый комментарий'},browsers[0],b.token)).status,403);
+ assert.equal(await db.taskComment.count({where:{taskId:commentTask.id}}),1);
  const deniedDictation=new FormData();deniedDictation.append('audio',new Blob(['synthetic fixture'],{type:'audio/webm'}),'fixture.webm');
  const deniedVoice=await fetch(origin+'/meetings/'+second[0].id+'/chat-dictation',{method:'POST',headers:{Authorization:'Bearer '+a.token,'x-demo-browser':browsers[0]},body:deniedDictation});
  assert.equal(deniedVoice.status,404);assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.remaining,3);

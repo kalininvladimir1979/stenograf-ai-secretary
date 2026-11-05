@@ -1,3 +1,5 @@
+let cancelActiveDictation:(()=>void)|null=null;
+
 export type DictationState = "idle" | "starting" | "recording" | "transcribing";
 
 export function appendDictation(draft: string, text: string) {
@@ -36,6 +38,7 @@ export function createVoiceDictation(options: {
   const cancel = () => {
     if (closed) return;
     closed = true;
+    if(cancelActiveDictation===cancel)cancelActiveDictation=null;
     abort.abort();
     if (recorder) {
       recorder.onstop = null;
@@ -70,6 +73,8 @@ export function createVoiceDictation(options: {
       );
       return;
     }
+    cancelActiveDictation?.();
+    cancelActiveDictation=cancel;
     options.onState("starting");
     try {
       // Resume Web Audio while the click's user activation is still available.
