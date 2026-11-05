@@ -48,7 +48,7 @@ import {
 import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from "./api";
 import KnowledgeTransfer from "./KnowledgeTransfer";
 import ServerRemoval from "./ServerRemoval";
-import {AdminLink,Usage,ImportMaterial,CloudFolders,DeveloperCloud,MaterialGallery,VersionPanel} from './CloudWorkspace';
+import {AdminLink,Usage,ImportMaterial,CloudFolders,MainCloudConnections,DeveloperCloud,MaterialGallery,VersionPanel} from './CloudWorkspace';
 import meetingsEditorial from "./assets/meetings-editorial.png";
 import tasksEditorial from "./assets/tasks-editorial.png";
 import momentumEditorial from "./assets/momentum-editorial.png";
@@ -4495,7 +4495,7 @@ function App() {
       />
       <Usage orgId={org.id}/>
       <ImportMaterial org={org} onOpen={id=>{setSelected(id);void api<Meeting[]>(`/meetings?organizationId=${org.id}`).then(setMeetings);}}/>
-      {['OWNER','ADMIN'].includes(current.role)&&<CloudFolders orgId={org.id}/>}
+      {['OWNER','ADMIN'].includes(current.role)&&<MainCloudConnections orgId={org.id}/>}
       {user.email.endsWith('@demo.stenograf.local')&&!['OWNER','ADMIN'].includes(current.role)&&<p><a href={location.pathname+'?surface=admin&section=cloud'}>Настроить облачные папки и режим «Файл / папка — встреча»</a> · пароль демо-админки: 1234</p>}
       <div className="metrics">
         <div>
