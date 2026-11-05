@@ -40,3 +40,11 @@
  .dev-surface .model-catalog{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.dev-surface .model-catalog__organization{width:100%;min-width:0}.dev-surface .model-catalog__refresh{justify-self:start;white-space:normal;max-width:100%}
  .dev-surface .dev-surface__bar{display:flex;flex-wrap:wrap;gap:14px}.dev-surface .dev-surface__bar>.back{width:100%;text-align:left}.dev-surface .dev-surface__identity{flex:1;min-width:0}.dev-surface .dev-surface__actions{margin-left:auto}
 }
+
+.cloud-fields.cloud-schedule{gap:10px 12px;margin:8px 0;align-items:start}
+.cloud-fields.cloud-schedule[data-mode="interval"]{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr) minmax(0,.65fr)}
+.cloud-schedule>label{gap:5px;align-content:start}
+.cloud-panel .cloud-schedule select,.cloud-panel .cloud-schedule input:not([type=checkbox]){min-height:40px;box-sizing:border-box;font-size:12px}
+.cloud-panel .cloud-schedule>.cloud-preview{margin:2px 0 0;font-size:11px;line-height:1.5}
+@media(max-width:1000px){.cloud-fields.cloud-schedule[data-mode="interval"]{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.cloud-fields.cloud-schedule,.cloud-fields.cloud-schedule[data-mode="interval"]{grid-template-columns:1fr}}
