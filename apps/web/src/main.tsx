@@ -620,12 +620,16 @@ function MeetingCard({
   onOpen,
   onTasks,
   onDelete,
+  expanded = false,
+  onToggle,
 }: {
   meeting: Meeting;
   view: MeetingListView;
   onOpen?: () => void;
   onTasks?: () => void;
   onDelete?: () => void;
+  expanded?: boolean;
+  onToggle?: () => void;
 }) {
   const nextAction = meeting.state === "PROCESSING" ? null
     : meeting.state === "READY" && meeting.tasks.length > 0
@@ -633,6 +637,31 @@ function MeetingCard({
       : meeting.state === "READY"
         ? { label: "Открыть протокол", onClick: onOpen }
         : { label: "Проверить обработку", onClick: onOpen };
+  if (view === "minimal") return <article className="meeting-accordion">
+    <h2 className="meeting-accordion__heading">
+      <button type="button" className="meeting-accordion__trigger" id={`meeting-trigger-${meeting.id}`} aria-expanded={expanded} aria-controls={`meeting-panel-${meeting.id}`} onClick={onToggle}>
+        <span className="meeting-accordion__title" title={meeting.title}>{meeting.title}</span>
+        {meeting.state === "PROCESSING" ? <MeetingCardProcessing startedAt={meeting.processingStartedAt || meeting.updatedAt} /> : <span className={meeting.state === "READY" ? "ready" : "pending"}>{meetingStateLabels[meeting.state] || meeting.state}</span>}
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+    </h2>
+    <div id={`meeting-panel-${meeting.id}`} aria-labelledby={`meeting-trigger-${meeting.id}`} className="meeting-accordion__panel" hidden={!expanded}>
+      <div className="card-meta">
+        <span className="card-meta__department">{meeting.department.name}</span>
+        <span>{date(meeting.updatedAt)}</span>
+        <span>{meeting.template?.name || "Без шаблона"}</span>
+        <span className="card-meta__source">{meeting.sourceKind==='folder'?'Из облачной папки':meeting.sourceKind==='link'?'Из облака по ссылке':'Загружено вручную'}<span aria-hidden="true">·</span><span>{{audio:'Аудиозапись',video:'Видеозапись',image:'Изображение',document:'Документ',collection:'Папка / проект',text:'Заметки'}[meeting.materialKind||'text']||'Материал'}</span></span>
+      </div>
+      <p className="meeting-accordion__preview">{meetingPreview(meeting.summary, "brief")}</p>
+      {meeting.state === "PROCESSING" && meeting.processingStage && <p role="status">{meeting.processingStage}</p>}
+      <div className="meeting-accordion__actions">
+        {onOpen && <button type="button" className="outline" onClick={onOpen}><ArrowUpRight size={14} />Открыть встречу</button>}
+        <span>Поручения: {meeting.tasks.length}</span>
+        {onTasks && <button type="button" className="outline" onClick={onTasks}>К поручениям</button>}
+        {onDelete && <button type="button" className="meeting-card__delete" aria-label={`Удалить встречу ${meeting.title}`} title="Удалить встречу" onClick={onDelete}><Trash2 size={15} /></button>}
+      </div>
+    </div>
+  </article>;
   return (
     <article className={`meeting-card meeting-card--${view}${onOpen ? "" : " meeting-card--processing"}`} onClick={onOpen}>
       <div className="card-meta">
@@ -642,9 +671,9 @@ function MeetingCard({
         <span className="card-meta__source">{meeting.sourceKind==='folder'?'Из облачной папки':meeting.sourceKind==='link'?'Из облака по ссылке':'Загружено вручную'}<span aria-hidden="true">·</span><span>{{audio:'Аудиозапись',video:'Видеозапись',image:'Изображение',document:'Документ',collection:'Папка / проект',text:'Заметки'}[meeting.materialKind||'text']||'Материал'}</span></span>
         <ArrowUpRight className="card-meta__open" size={14} aria-hidden="true" />
       </div>
-      <h2 title={view==='minimal'?meeting.title:undefined}>{meeting.title}</h2>
+      <h2>{meeting.title}</h2>
       {meeting.processingStage&&<p className="meeting-card__stage" role="status">{meeting.processingStage}</p>}
-      {view !== "minimal" && <p className="meeting-card__preview">{meetingPreview(meeting.summary, view)}</p>}
+      <p className="meeting-card__preview">{meetingPreview(meeting.summary, view)}</p>
       <footer>
         <span>Решения: {meeting.summary ? "есть" : "—"}</span>
         <span>Поручения: {meeting.tasks.length}</span>
@@ -4135,6 +4164,7 @@ function App() {
     ),
     [meetings, setMeetings] = useState<Meeting[]>([]),
     [meetingListView, setMeetingListView] = useState<MeetingListView>("brief"),
+    [expandedMeeting, setExpandedMeeting] = useState<string | null>(null),
     [departmentFilter, setDepartmentFilter] = useState(""),
     [selected, setSelected] = useState<string | null>(()=>new URLSearchParams(location.search).get('meeting')),
     [deletingMeeting, setDeletingMeeting] = useState<Meeting | null>(null),
@@ -4239,6 +4269,7 @@ function App() {
     setView("meetings");
     setWorkspaceTourStep(0);
   }, [current?.organization.id, loading, user?.id, view, workspaceTourStep]);
+  useEffect(() => { setExpandedMeeting(null); }, [current?.organization.id, departmentFilter, meetingListView, selected, create, view]);
   if (loading)
     return <div className="loading">Запускаем рабочее пространство…</div>;
   if (view === "dev")
@@ -4412,6 +4443,8 @@ function App() {
             key={x.id}
             meeting={x}
             view={meetingListView}
+            expanded={expandedMeeting === x.id}
+            onToggle={() => setExpandedMeeting((id) => id === x.id ? null : x.id)}
             onOpen={x.state === "PROCESSING" ? undefined : () => setSelected(x.id)}
             onTasks={x.state === "READY" && x.tasks.length ? () => setView("tasks") : undefined}
             onDelete={current.role === "OWNER" || current.role === "ADMIN" || x.creatorId === user.id ? () => { setDeleteMeetingError(""); setDeletingMeeting(x); } : undefined}
