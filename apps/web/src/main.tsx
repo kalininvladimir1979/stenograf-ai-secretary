@@ -48,6 +48,7 @@ import {
 import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from "./api";
 import KnowledgeTransfer from "./KnowledgeTransfer";
 import CloudStorageCheck from "./CloudStorageCheck";
+import TranscriptView from "./TranscriptView";
 import ChatComposer,{useVoiceInput,transcribeVoice,VoiceMeter} from "./VoiceInput";
 import {appendDictation} from "./voice-dictation";
 import ServerRemoval from "./ServerRemoval";
@@ -1132,51 +1133,6 @@ function ResultAccordion({ id, title, summary, open, onToggle, children }: { id:
   </section>;
 }
 
-function transcriptParagraphs(text: string) {
-  const paragraphs: string[] = [];
-  for (const block of text.replace(/\r\n?/g, "\n").split(/\n+/).map((part) => part.trim()).filter(Boolean)) {
-    const sentences = block.split(/(?<=[.!?…])\s+(?=[\p{Lu}«„"—])/u);
-    let paragraph = "";
-    for (const sentence of sentences) {
-      if (paragraph && paragraph.length + sentence.length > 460) {
-        paragraphs.push(paragraph);
-        paragraph = "";
-      }
-      if (sentence.length > 700) {
-        for (const word of sentence.split(/\s+/)) {
-          if (paragraph && paragraph.length + word.length > 460) {
-            paragraphs.push(paragraph);
-            paragraph = "";
-          }
-          paragraph += `${paragraph ? " " : ""}${word}`;
-        }
-      } else {
-        paragraph += `${paragraph ? " " : ""}${sentence}`;
-      }
-    }
-    if (paragraph) paragraphs.push(paragraph);
-  }
-  return paragraphs;
-}
-
-function TranscriptDocument({ title, text, createdAt }: { title: string; text?: string; createdAt?: string }) {
-  const paragraphs = useMemo(() => transcriptParagraphs(text || ""), [text]);
-  const chapters = Array.from({ length: Math.ceil(paragraphs.length / 6) }, (_, index) => paragraphs.slice(index * 6, index * 6 + 6));
-  return <section className="transcript">
-    <article className="transcript-document">
-      <header className="transcript-document__cover">
-        <span className="transcript-document__eyebrow">СТЕНОГРАММА <span aria-hidden="true">/</span> {date(createdAt)}</span>
-        <h2>{title}</h2>
-        <p>Текст записи разбит на абзацы для удобного чтения.</p>
-      </header>
-      {chapters.length ? chapters.map((chapter, index) => <section className="transcript-document__chapter" key={index} aria-label={`Часть ${index + 1}`}>
-        <div className="transcript-document__chapter-heading"><span>{String(index + 1).padStart(2, "0")}</span><h3>Часть {index + 1}</h3><span className="transcript-document__rule" /></div>
-        <div className="transcript-document__prose">{chapter.map((paragraph, paragraphIndex) => <p key={paragraphIndex}>{paragraph}</p>)}</div>
-      </section>) : <p className="transcript-document__empty">Текст расшифровки ещё не готов.</p>}
-    </article>
-  </section>;
-}
-
 function processingDuration(startedAt?: string | null, now = Date.now()) {
   const started = startedAt ? new Date(startedAt).getTime() : NaN;
   const seconds = Number.isFinite(started) ? Math.max(0, Math.floor((now - started) / 1000)) : 0;
@@ -1627,11 +1583,11 @@ function MeetingDetail({
       )}
       {tab==='result'&&<VersionPanel key={m.activeVersionId+'-'+m.processingStage} meetingId={id} reload={()=>void load()}/>}
       {tab==='materials'&&<><ImportMaterial org={org} meetingId={id}/><MaterialGallery orgId={org.id} meetingId={id}/></>}
-      {tab === "transcript" && m.canEdit&&<section className="transcript-editor" aria-labelledby="transcript-editor-title"><div className="transcript-editor__heading"><Pencil size={19} aria-hidden="true"/><div><h2 id="transcript-editor-title">Редактировать расшифровку</h2><p>Проверьте распознанный текст и внесите правки.</p></div></div><textarea className="transcript-editor__input" aria-label="Текст расшифровки" aria-describedby="transcript-editor-hint" defaultValue={m.transcript?.text||''} onBlur={async e=>{if(e.target.value!==m.transcript?.text){await api(`/meetings/${id}/transcript`,{method:'PUT',body:JSON.stringify({text:e.target.value})});void load();}}}/><p className="transcript-editor__hint" id="transcript-editor-hint"><CheckCircle2 size={14} aria-hidden="true"/><span>Изменения сохраняются при выходе из поля. Повторный анализ создаст отдельную версию результата.</span></p></section>}
+
       {tab === "transcript" && (
         m.state === "PROCESSING" && !m.transcript?.text
           ? <section className="transcript"><h2>Расшифровка</h2><ProcessingPanel kind="transcript" startedAt={m.processingStartedAt || m.updatedAt} /></section>
-          : <TranscriptDocument title={m.title} text={m.transcript?.text} createdAt={m.createdAt} />
+          : <TranscriptView key={id} title={m.title} text={m.transcript?.text} createdAt={m.createdAt} canEdit={!!m.canEdit} onSave={async text=>{await api(`/meetings/${id}/transcript`,{method:'PUT',body:JSON.stringify({text})});setM((current:any)=>current?.id===id?({...current,transcript:{...current.transcript,text}}):current);}}/>
       )}
       {tab === "materials" && (
         <section className="meeting-materials">
