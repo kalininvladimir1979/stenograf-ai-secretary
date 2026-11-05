@@ -48,3 +48,5 @@
 .cloud-panel .cloud-schedule>.cloud-preview{margin:2px 0 0;font-size:11px;line-height:1.5}
 @media(max-width:1000px){.cloud-fields.cloud-schedule[data-mode="interval"]{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.cloud-fields.cloud-schedule,.cloud-fields.cloud-schedule[data-mode="interval"]{grid-template-columns:1fr}}
+
+.cloud-check-feedback{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;margin:8px 0 14px;font-size:12px;line-height:1.6}.cloud-panel .cloud-check-feedback p{flex:1 1 420px;margin:0;font-size:12px}.cloud-check-feedback a{white-space:nowrap;color:var(--wine);text-underline-offset:3px}
