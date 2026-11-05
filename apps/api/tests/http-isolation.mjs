@@ -53,6 +53,12 @@ try{
  const emptyScan=await request('/cloud/folders/check-all',{organizationId:org},browsers[0],admin.token);
  assert.equal(emptyScan.data.summary.total,0);assert.equal(emptyScan.status,200);assert.equal(emptyScan.data.summary.folders,0);assert.equal(emptyScan.data.summary.queued,0);
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],admin.token)).data.remaining,3);
+ const manualFolder=await db.cloudFolder.create({data:{organizationId:org,ownerId:a.user.id,provider:'yandex',name:'Manual schedule fixture',providerFolderId:'disk:/fixture',url:'https://disk.yandex.ru/d/fixture',status:'paused',settings:{},schedule:{mode:'interval',minutes:60},nextRunAt:new Date(Date.now()+3600000)}});
+ const manualSaved=await request('/cloud/folders/'+manualFolder.id,{schedule:{mode:'manual'}},browsers[0],admin.token,'PUT');
+ assert.equal(manualSaved.status,200);assert.equal(manualSaved.data.nextRunAt,null);assert.equal(manualSaved.data.schedule.mode,'manual');
+ const scheduledAgain=await request('/cloud/folders/'+manualFolder.id,{schedule:{mode:'interval',minutes:60}},browsers[0],admin.token,'PUT');
+ assert.equal(scheduledAgain.status,200);assert.ok(scheduledAgain.data.nextRunAt);
+ await db.cloudFolder.delete({where:{id:manualFolder.id}});
  const providers=(await request('/cloud/providers',null,browsers[0],admin.token)).data;
  assert.equal(providers.length,5);
  const version=await db.analysisVersion.create({data:{meetingId:own[0].id,number:1,state:'applied',result:{summary:'Fixture'},snapshot:{}}});

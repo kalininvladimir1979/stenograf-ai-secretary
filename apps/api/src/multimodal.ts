@@ -172,7 +172,7 @@ export function installMultimodal(c:any) {
   async function tick(){if(ticking)return;ticking=true;try{
     const job=await db.$transaction(async(tx:any)=>{await tx.$executeRaw`SELECT pg_advisory_xact_lock(718261026)`;const j=await tx.processingJob.findFirst({where:{OR:[{status:'queued'},{status:'running',leaseUntil:{lt:new Date()}}]},orderBy:{createdAt:'asc'}});if(!j)return null;return tx.processingJob.update({where:{id:j.id},data:{status:'running',startedAt:j.startedAt||new Date(),leaseUntil:new Date(Date.now()+90000)}});});
     if(job)await c.runWithOperation(job.payload.analysisOperationId||job.operationId,()=>runJob(job));
-    const due=await db.cloudFolder.findMany({where:{status:'active',nextRunAt:{lte:new Date()},OR:[{leaseUntil:null},{leaseUntil:{lt:new Date()}}]},take:2});for(const f of due)await sync(f).catch(()=>{});
+    const due=await db.cloudFolder.findMany({where:{status:'active',nextRunAt:{lte:new Date()},OR:[{leaseUntil:null},{leaseUntil:{lt:new Date()}}]},take:2});for(const f of due){if(f.schedule.mode==='manual'){await db.cloudFolder.update({where:{id:f.id},data:{nextRunAt:null}});continue;}await sync(f).catch(()=>{});}
   }finally{ticking=false;}}
   async function list(folder:any){
     const account=folder.accountId?await db.cloudAccount.findFirst({where:{id:folder.accountId,organizationId:folder.organizationId,status:'connected'}}):null;
@@ -205,9 +205,9 @@ export function installMultimodal(c:any) {
         try{await queue({organizationId:folder.organizationId,ownerId:folder.ownerId,folderId:folder.id,accountId:folder.accountId,origin:'folder',provider:folder.provider,id:x.id,version:x.version,name:x.name,normalizedUrl:x.url||folder.url,providerPath:x.path,grouping:folder.settings.grouping||'file',analysisOperationId:folder.settings.grouping==='folder'?'folder-run-'+run.id:undefined,rule:'meeting',autoAnalyze:folder.settings.autoAnalyze!==false});registry[x.id]={stamp,name:x.name,imported:true,seenAt:new Date().toISOString()};old?stats.changed++:stats.new++;events.push({name:x.name,status:'В очереди'});}catch(e:any){stats.errors++;events.push({name:x.name,status:e.message});}
       }
       for(const id of Object.keys(registry))if(!files.some((x:any)=>x.id===id))await db.material.updateMany({where:{folderId:folder.id,providerFileId:id},data:{available:false}});
-      await db.cloudFolder.update({where:{id:folder.id},data:{registry,lastRunAt:new Date(),nextRunAt:nextRuns(folder.schedule)[0],leaseUntil:null,error:null}});
+      await db.cloudFolder.update({where:{id:folder.id},data:{registry,lastRunAt:new Date(),nextRunAt:nextRuns(folder.schedule)[0]??null,leaseUntil:null,error:null}});
       await db.syncRun.update({where:{id:run.id},data:{status:'done',stats,events,completedAt:new Date()}});return {stats,events};
-    }catch(e:any){await db.cloudFolder.update({where:{id:folder.id},data:{leaseUntil:null,error:e.message,status:/401|403|переподключ/.test(e.message)?'reconnect':'active',nextRunAt:nextRuns(folder.schedule)[0]}});await db.syncRun.update({where:{id:run.id},data:{status:'failed',events:[{status:e.message}],completedAt:new Date()}});throw e;}
+    }catch(e:any){await db.cloudFolder.update({where:{id:folder.id},data:{leaseUntil:null,error:e.message,status:/401|403|переподключ/.test(e.message)?'reconnect':'active',nextRunAt:nextRuns(folder.schedule)[0]??null}});await db.syncRun.update({where:{id:run.id},data:{status:'failed',events:[{status:e.message}],completedAt:new Date()}});throw e;}
   }
   app.get('/ai/usage',auth,wrap(async(req:any,res:any)=>{const org=String(req.query.organizationId);if(!await member(req.user.id,org))throw Error('Нет доступа');const space=await db.demoSpace.findUnique({where:{organizationId:org}});const cfg=await config();res.json({demo:!!space,remaining:space?Math.max(0,cfg.limit-space.used):null,contact:cfg.contact,hasKey:!!(await c.meetingOpenAiKey(org)).key});}));
   async function allowedMeeting(req:any,edit=false){const m=await db.meeting.findUnique({where:{id:req.params.id}});const access=m&&await meetingAccess(req.user.id,m);if(!access?.allowed||edit&&!access.editor)throw Error('Встреча не найдена');return m;}
@@ -283,9 +283,9 @@ export function installMultimodal(c:any) {
     if(!['file','folder'].includes(settings.grouping))throw Error('Выберите режим объединения файлов');
     const folder={organizationId:p.organizationId,ownerId:req.user.id,provider:prov,url:p.url,providerFolderId:folderId,accountId:p.accountId||null,name:p.name||provider(prov).name,settings,schedule};
     const preview=await list(folder);if(await db.demoSpace.findUnique({where:{organizationId:p.organizationId}})&&folder.settings.initial==='all'&&!p.confirmed)return res.json({needsConfirmation:true,count:preview.filter((x:any)=>kindOf(x.name)&&settings.types[kindOf(x.name)]!==false).length});
-    res.json(await db.cloudFolder.create({data:{...folder,nextRunAt:new Date()}}));
+    res.json(await db.cloudFolder.create({data:{...folder,nextRunAt:schedule.mode==='manual'?null:new Date()}}));
   }));
-  app.put('/cloud/folders/:id',auth,wrap(async(req:any,res:any)=>{const f=await db.cloudFolder.findUnique({where:{id:req.params.id}});if(!f)throw Error('Папка не найдена');await admin(req,f.organizationId);const data:any={};if(req.body.settings)data.settings=req.body.settings;if(req.body.schedule){data.schedule=validateSchedule(req.body.schedule);data.nextRunAt=nextRuns(data.schedule)[0];}if(['active','paused'].includes(req.body.status))data.status=req.body.status;res.json(await db.cloudFolder.update({where:{id:f.id},data}));}));
+  app.put('/cloud/folders/:id',auth,wrap(async(req:any,res:any)=>{const f=await db.cloudFolder.findUnique({where:{id:req.params.id}});if(!f)throw Error('Папка не найдена');await admin(req,f.organizationId);const data:any={};if(req.body.settings)data.settings=req.body.settings;if(req.body.schedule){data.schedule=validateSchedule(req.body.schedule);data.nextRunAt=nextRuns(data.schedule)[0]??null;}if(['active','paused'].includes(req.body.status))data.status=req.body.status;res.json(await db.cloudFolder.update({where:{id:f.id},data}));}));
   async function checkFolders(organizationId:string,syncOne=sync){
     const folders=await db.cloudFolder.findMany({where:{organizationId},orderBy:{createdAt:'asc'}});
     const summary={folders:folders.length,checked:0,total:0,new:0,changed:0,queued:0,skipped:0,paused:0,reconnect:0,pending:0,errors:0};const results:any[]=[];

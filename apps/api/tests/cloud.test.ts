@@ -23,6 +23,10 @@ test('monthly schedule skips absent dates and includes last day; weekly timezone
  assert.equal(weekly[0].toISOString(),'2026-11-09T06:30:00.000Z');
  assert.throws(()=>nextRuns({mode:'interval',minutes:1}));
 });
+test('manual schedule never schedules an automatic check',()=>{
+ assert.deepEqual(nextRuns({mode:'manual'}),[]);
+ assert.deepEqual(nextRuns({mode:'manual',minutes:1,days:[],times:[]},new Date('2026-11-05'),10),[]);
+});
 test('atomic browser quota, repeated operation, and both folder grouping modes',async()=>{
  const db=new PrismaClient();const tag=randomUUID();let org:any;const temp=await fs.mkdtemp(path.join(os.tmpdir(),'stenograf-unit-'));
  try{

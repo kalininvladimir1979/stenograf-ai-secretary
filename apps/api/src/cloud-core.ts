@@ -63,8 +63,9 @@ export function kindOf(name:string) {
   return null;
 }
 export function validateSchedule(s:any) {
+  if(!['manual','interval','weekly','monthly'].includes(s.mode))throw new Error('Неизвестный режим расписания.');
+  if(s.mode==='manual')return {...s,timezone:s.timezone||'Europe/Moscow'};
   new Intl.DateTimeFormat('en',{timeZone:s.timezone||'Europe/Moscow'});
-  if(!['interval','weekly','monthly'].includes(s.mode))throw new Error('Неизвестный режим расписания.');
   if(s.mode==='interval'&&![15,30,60,180,360,720,1440].includes(Number(s.minutes)))throw new Error('Выберите допустимый интервал.');
   if(s.mode!=='interval'&&(!Array.isArray(s.times)||!s.times.length||s.times.some((t:any)=>typeof t!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(t))))throw new Error('Укажите время ЧЧ:ММ.');
   if(s.mode==='weekly'&&(!s.days?.length||s.days.some((d:any)=>!Number.isInteger(d)||d<0||d>6)))throw new Error('Выберите дни недели.');
@@ -73,6 +74,7 @@ export function validateSchedule(s:any) {
 }
 export function nextRuns(schedule:any,from=new Date(),count=3) {
   const s=validateSchedule(schedule);const out:Date[]=[];
+  if(s.mode==='manual')return out;
   if(s.mode==='interval'){for(let i=1;i<=count;i++)out.push(new Date(+from+i*s.minutes*60000));return out;}
   const fmt=new Intl.DateTimeFormat('en-US',{timeZone:s.timezone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
   const start=Math.floor(+from/60000)*60000+60000;
