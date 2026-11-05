@@ -1083,11 +1083,30 @@ function ExpandingTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
 }
 
 function ResultAccordion({ id, title, summary, open, onToggle, children }: { id: string; title: string; summary: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  const [helpOpen,setHelpOpen]=useState(false);
+  const helpDialog=useRef<HTMLDialogElement>(null);
+  const help:Record<string,string>={
+    'Резюме':'Краткое содержание встречи: основные темы, важные факты и общий итог. Проверьте формулировки по исходным материалам и при необходимости отредактируйте текст.',
+    'Решения':'Договорённости, которые участники приняли на встрече. Здесь фиксируется, что именно согласовано. Конкретные задачи, ответственные и сроки находятся в разделе «Поручения».',
+    'Риски и требуется уточнение':'Возможные проблемы, противоречия и недостающие сведения: например, неясный срок или неназначенный ответственный. Эти пункты стоит проверить и уточнить у участников.',
+    'Письмо по итогам встречи':'Редактируемый черновик сообщения участникам с итогами встречи и дальнейшими действиями. Проверьте содержание перед отправкой. Автоматически письмо не отправляется.',
+    'Поля шаблона':'Дополнительные сведения, предусмотренные выбранным шаблоном встречи. Состав полей зависит от её типа. Значения можно проверить и исправить вручную.',
+    'Поручения':'Задачи по итогам встречи: что сделать, кто отвечает, к какому сроку и в каком состоянии находится работа. Неизвестные сроки и ответственных нужно уточнить. Поручения также доступны на доске задач и в календаре.'
+  };
+  useEffect(()=>{if(helpOpen){helpDialog.current?.showModal();return()=>helpDialog.current?.close();}},[helpOpen]);
   return <section className={`result-accordion ${open ? "open" : ""}`}>
+    <div className="result-accordion__heading">
     <button type="button" className="result-accordion__trigger" aria-expanded={open} aria-controls={id} onClick={onToggle}>
       <span><strong>{title}</strong><small>{summary}</small></span>
       <ChevronDown size={17} aria-hidden="true" />
     </button>
+    <button type="button" className="result-accordion__info" aria-label={`О разделе «${title}»`} title={`О разделе «${title}»`} aria-haspopup="dialog" aria-expanded={helpOpen} aria-controls={`${id}-help`} onClick={()=>setHelpOpen(true)}><Info size={16} aria-hidden="true"/></button>
+    </div>
+    <dialog ref={helpDialog} id={`${id}-help`} className="result-help-dialog" aria-labelledby={`${id}-help-title`} aria-describedby={`${id}-help-text`} onCancel={()=>setHelpOpen(false)} onClick={e=>{if(e.target===e.currentTarget){const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)setHelpOpen(false);}}}>
+      <button type="button" className="result-help-dialog__close" aria-label="Закрыть пояснение" autoFocus onClick={()=>setHelpOpen(false)}><X size={18}/></button>
+      <Info size={22} aria-hidden="true"/>
+      <h3 id={`${id}-help-title`}>{title}</h3><p id={`${id}-help-text`}>{help[title]}</p>
+    </dialog>
     {open && <div id={id} className="result-accordion__content">{children}</div>}
   </section>;
 }
@@ -1606,7 +1625,7 @@ function MeetingDetail({
                 onChange={(e) => setM({ ...m, risksText: e.target.value })}
               />
             </ResultAccordion>
-            <ResultAccordion id={`${id}-result-follow-up`} title="Follow-up письмо" summary={m.followUp?.trim() ? "Черновик письма по итогам" : "Пока не заполнено"} open={openResultSection === "followUp"} onToggle={() => setOpenResultSection(openResultSection === "followUp" ? null : "followUp")}>
+            <ResultAccordion id={`${id}-result-follow-up`} title="Письмо по итогам встречи" summary={m.followUp?.trim() ? "Черновик для участников" : "Пока не заполнено"} open={openResultSection === "followUp"} onToggle={() => setOpenResultSection(openResultSection === "followUp" ? null : "followUp")}>
               <ExpandingTextarea
                 aria-label="Follow-up письмо"
                 value={m.followUp || ""}

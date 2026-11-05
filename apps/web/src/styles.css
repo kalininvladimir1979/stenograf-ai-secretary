@@ -1105,6 +1105,10 @@ main {
 .result-accordion__trigger:focus-visible { outline: 2px solid var(--wine); outline-offset: -2px; }
 .result-accordion__content { margin: 0 0 17px 2px; padding: 3px 0 0 16px; border-left: 1px solid var(--line); }
 .result-accordion__empty { margin: 0; color: var(--muted); font-size: 12px; }
+.result-accordion__heading{position:relative}.result-accordion__heading .result-accordion__trigger>span{padding-right:30px}
+.result-accordion__info{position:absolute;right:26px;top:12px;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);cursor:pointer}.result-accordion__info:hover{background:var(--soft);color:var(--wine)}.result-accordion__info:focus-visible{outline:2px solid var(--wine);outline-offset:2px}
+.result-help-dialog{position:fixed;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 48px);box-sizing:border-box;margin:auto;padding:26px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);box-shadow:0 20px 70px #0003;overflow:auto}.result-help-dialog::backdrop{background:#0006;backdrop-filter:blur(3px)}.result-help-dialog>svg{color:var(--wine)}.result-help-dialog h3{margin:14px 28px 10px 0;font:600 19px/1.35 "Playfair Display",serif}.results .result-help-dialog p{margin:0;color:var(--muted);font:13px/1.75 Manrope,sans-serif}
+.result-help-dialog__close{position:absolute;top:12px;right:12px;display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);cursor:pointer}.result-help-dialog__close:hover{background:var(--soft);color:var(--ink)}.result-help-dialog__close:focus-visible{outline:2px solid var(--wine);outline-offset:2px}
 .results h3,
 .chat h3,
 .invite h3 {
