@@ -689,27 +689,34 @@ main {
 .meeting-card--minimal {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 18px;
-  padding: 12px 16px;
+  column-gap: 14px;
+  row-gap: 2px;
+  padding: 8px 12px;
 }
-.meeting-card--minimal .card-meta { grid-column: 1 / -1; padding-bottom: 6px; }
-.meeting-card--minimal h2 { grid-column: 1; margin: 4px 0 0; font-size: 17px; }
-.meeting-card--minimal .meeting-card__stage { grid-column:1; padding-top:4px; }
-.meeting-card--minimal footer {
+.meeting-card--minimal .card-meta { grid-column: 1 / -1; padding-bottom: 0; gap:4px 10px; }
+.meeting-card--minimal .card-meta__source{padding:1px 6px}
+.meeting-card--minimal h2 { grid-column: 1; align-self:center; min-width:0; margin:0; font-size:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.meeting-card--minimal .meeting-card__stage { display:none; }
+.meeting-card--minimal.meeting-card--processing .meeting-card__stage{display:block;grid-column:1 / -1;padding-top:2px;font-size:11px}
+.meeting-card.meeting-card--minimal footer {
   grid-column: 2;
-  grid-row: 2 / span 2;
+  grid-row: 2;
   align-self: center;
   margin: 0;
   padding: 0;
   border: 0;
   align-items: center;
+  gap:10px;
+  font:10px/1.3 "DM Mono",monospace;
+  white-space:nowrap;
 }
 .meeting-card--minimal footer > span:first-child,
 .meeting-card--minimal .meeting-card__next { display: none; }
+.meeting-card.meeting-card--minimal footer span{font-size:inherit}
 .meeting-card--minimal .meeting-card__delete { margin: 0 0 0 2px; }
 @media(max-width:760px){
-  .meeting-card--minimal{grid-template-columns:minmax(0,1fr);row-gap:6px}
-  .meeting-card--minimal footer{grid-column:1;grid-row:auto;flex-wrap:wrap;justify-content:flex-start;gap:12px;margin-top:7px}
+  .meeting-card--minimal{grid-template-columns:minmax(0,1fr);row-gap:3px}
+  .meeting-card.meeting-card--minimal footer{grid-column:1;grid-row:auto;flex-wrap:wrap;justify-content:flex-start;gap:10px;margin-top:0}
   .meeting-card--minimal .meeting-card__delete{margin-left:auto}
 }
 .meeting-card footer {
