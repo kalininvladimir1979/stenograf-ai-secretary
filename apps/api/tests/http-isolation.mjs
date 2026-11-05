@@ -27,6 +27,10 @@ try{
  assert.equal((await request('/auth/me',null,browsers[1],a.token)).status,401);
  assert.equal((await request('/cloud/accounts?organizationId='+org,null,browsers[0],a.token)).status,403);
  const before=(await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data;
+ assert.equal(before.demoRole,'client1');assert.deepEqual(before.demoDepartments.map(d=>d.name),['Разработка','Продажи']);
+ const renamedDepartment=before.demoDepartments[0].departmentId;await db.department.update({where:{id:renamedDepartment},data:{name:'Инженерный отдел'}});
+ assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.demoDepartments[0].name,'Инженерный отдел');
+ await db.department.update({where:{id:renamedDepartment},data:{name:'Разработка'}});
  assert.equal(before.remaining,3);
  const originalMeeting=await db.meeting.findUniqueOrThrow({where:{id:own[0].id}});
  const deferred=await request('/meetings',{organizationId:org,departmentId:originalMeeting.departmentId,templateId:originalMeeting.templateId,title:'Материалы новой встречи',notes:'Контекст до загрузки файла',deferAnalysis:true},browsers[0],a.token);
@@ -38,6 +42,7 @@ try{
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],b.token)).data.remaining,3);
  const admin=(await request('/auth/demo-admin-session',{password:'1234'},browsers[0])).data;
  assert.equal((await request('/admin/access?organizationId='+org,null,browsers[0],admin.token)).data.allowed,true);
+ assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],admin.token)).data.demoRole,'admin');
  const mainSettings='/cloud/main-settings?organizationId='+org;
  assert.equal((await request(mainSettings,null,browsers[0],a.token)).status,403);
  assert.equal((await request(mainSettings,null,browsers[0],admin.token)).data.enabled,true);
