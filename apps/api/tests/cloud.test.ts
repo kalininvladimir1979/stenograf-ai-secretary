@@ -72,7 +72,7 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   await fs.access(image.localPath);
   validIllustration=true;
   const replaced=await service.createIllustration(meeting,nextVersion,tag+'safe-replace','Показать подтверждённые этапы слева направо',image.id);
-  assert.equal(replaced.id,image.id);assert.notEqual(replaced.localPath,image.localPath);assert.equal(replaced.needsReview,false);
+  assert.equal(replaced.id,image.id);assert.notEqual(replaced.localPath,image.localPath);assert.equal(replaced.needsReview,false);assert.equal(replaced.caption,image.caption);
   assert.equal(await db.reportImage.count({where:{versionId:nextVersion.id}}),1);
   await assert.rejects(()=>fs.access(image.localPath));await fs.access(replaced.localPath);
  }finally{

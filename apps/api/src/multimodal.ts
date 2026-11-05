@@ -326,7 +326,7 @@ export function installMultimodal(c:any) {
       catch(e:any){issues=['Не удалось проверить факты иллюстрации: '+e.message];}
       if(replacement&&!valid)throw Error('Новый вариант не прошёл проверку фактов. Предыдущее изображение сохранено. '+issues.join('; ').slice(0,700));
       const localPath=path.join(root,randomUUID()+'.png');await fs.writeFile(localPath,Buffer.from(b64,'base64'),{mode:0o600});
-      let image;try{image=replacement?await db.reportImage.update({where:{id:replacement.id},data:{localPath,caption:purpose,prompt,model:cfg.imageModel,needsReview:false}}):await db.reportImage.create({data:{organizationId:meeting.organizationId,meetingId:meeting.id,versionId:version.id,origin:'generated',localPath,caption:purpose,prompt,model:cfg.imageModel,included:valid,needsReview:!valid}});}catch(e){await fs.unlink(localPath).catch(()=>{});throw e;}
+      let image;try{image=replacement?await db.reportImage.update({where:{id:replacement.id},data:{localPath,prompt,model:cfg.imageModel,needsReview:false}}):await db.reportImage.create({data:{organizationId:meeting.organizationId,meetingId:meeting.id,versionId:version.id,origin:'generated',localPath,caption:'Иллюстрация к итогам встречи',prompt,model:cfg.imageModel,included:valid,needsReview:!valid}});}catch(e){await fs.unlink(localPath).catch(()=>{});throw e;}
       if(replacement)await fs.unlink(replacement.localPath).catch(()=>{});
       await db.analysisVersion.update({where:{id:version.id},data:{illustrationError:valid?null:'Иллюстрация исключена из экспорта. Требуется проверка: '+issues.join('; ').slice(0,1000)}});
       return image;
