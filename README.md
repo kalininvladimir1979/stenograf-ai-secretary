@@ -5,6 +5,7 @@
 ## Ссылки на проект
 
 - Исходный код и история изменений: [GitHub](https://github.com/kalininvladimir1979/stenograf-ai-secretary).
+- Опубликованное приложение на Vercel: [СтеноГРАФ](https://stenograf-ai-secretary.vercel.app/).
 - Серверное приложение: [СтеноГРАФ на VPS](https://app.neurozavod.online/ai-sekretar261026/).
 
 Репозиторий содержит исходники и синтетические тестовые материалы. Записи пользователей, база данных, локальные настройки и секреты в Git не включены.
@@ -66,4 +67,4 @@ python3 test-data/multimodal-smoke.py
 node apps/api/tests/media-smoke.mjs
 ```
 
-`vercel.json` собирает существующий фронтенд и направляет `/api/*` в опубликованный сервер «СтеноГРАФа». Длительная обработка, PostgreSQL и расписания остаются на VPS. Для реального выпуска на Vercel необходим подключённый аккаунт. Встроенные OAuth Redirect URI показываются в Dev-консоли; production-адреса задаются `PUBLIC_API_URL` и `PUBLIC_APP_URL`.
+`vercel.json` собирает существующий фронтенд и направляет `/api/*` в опубликованный сервер «СтеноГРАФа». Длительная обработка, PostgreSQL и расписания остаются на VPS. Приложение опубликовано на Vercel из ветки `main`; интерфейс и проксирование API проверены 05.11.2026. Встроенные OAuth Redirect URI показываются в Dev-консоли; production-адреса задаются `PUBLIC_API_URL` и `PUBLIC_APP_URL`.
