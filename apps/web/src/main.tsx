@@ -1,4 +1,4 @@
-import { type TextareaHTMLAttributes, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, type TextareaHTMLAttributes, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowUpRight,
@@ -49,6 +49,7 @@ import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from ".
 import KnowledgeTransfer from "./KnowledgeTransfer";
 import CloudStorageCheck from "./CloudStorageCheck";
 import TranscriptView from "./TranscriptView";
+
 import ChatComposer,{useVoiceInput,transcribeVoice,VoiceMeter} from "./VoiceInput";
 import {appendDictation} from "./voice-dictation";
 import ServerRemoval from "./ServerRemoval";
@@ -57,6 +58,8 @@ import meetingsEditorial from "./assets/meetings-editorial.png";
 import tasksEditorial from "./assets/tasks-editorial.png";
 import momentumEditorial from "./assets/momentum-editorial.png";
 import "./styles.css";
+
+const MeetingNotes = lazy(() => import("./MeetingNotes"));
 
 type Org = {
   id: string;
@@ -1205,7 +1208,7 @@ function MeetingDetail({
 }) {
   const readTab = (meetingId: string) => {
     const saved = sessionStorage.getItem(`secretary-meeting-tab:${meetingId}`);
-    return ["result", "transcript", "materials", "sources", "invite"].includes(saved || "") ? saved! : "result";
+    return ["result", "transcript", "notes", "materials", "sources", "invite"].includes(saved || "") ? saved! : "result";
   };
   const readMaterialMode = (meetingId: string): "append" | "replace" =>
     sessionStorage.getItem(`secretary-material-mode:${meetingId}`) === "replace" ? "replace" : "append";
@@ -1497,6 +1500,7 @@ function MeetingDetail({
         >
           <Type size={15} aria-hidden="true"/>Расшифровка
         </button>
+        <button aria-current={tab==='notes'?'true':undefined} className={tab === "notes" ? "active" : ""} onClick={() => changeTab("notes")}><FileText size={15} aria-hidden="true"/>Конспект</button>
         <button aria-current={tab==='materials'?'true':undefined} className={tab === "materials" ? "active" : ""} onClick={() => changeTab("materials")}><FileAudio size={15} aria-hidden="true"/>Материалы</button>
         {sources.length > 0 && <button aria-label={`Источники (${sources.length})`} aria-current={tab==='sources'?'true':undefined} className={tab === "sources" ? "active" : ""} onClick={() => changeTab("sources")}><Workflow size={15} aria-hidden="true"/>Источники <span className="meeting-tabs__count">{sources.length}</span></button>}
         {m.canManageInvites && (
@@ -1618,6 +1622,7 @@ function MeetingDetail({
           ? <section className="transcript"><h2>Расшифровка</h2><ProcessingPanel kind="transcript" startedAt={m.processingStartedAt || m.updatedAt} /></section>
           : <TranscriptView key={id} title={m.title} text={m.transcript?.text} createdAt={m.createdAt} canEdit={!!m.canEdit} onSave={async text=>{await api(`/meetings/${id}/transcript`,{method:'PUT',body:JSON.stringify({text})});setM((current:any)=>current?.id===id?({...current,transcript:{...current.transcript,text}}):current);}}/>
       )}
+      {tab === "notes" && <Suspense fallback={<p role="status">Открываем конспект…</p>}><MeetingNotes key={id} meetingId={id} revision={m.updatedAt}/></Suspense>}
       {tab === "materials" && (
         <section className="meeting-materials">
           <div className="meeting-materials__heading">
