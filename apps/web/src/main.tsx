@@ -4514,7 +4514,6 @@ function App() {
           <p>История, решения и открытые обязательства вашей организации.</p>
         </div>
         <div className="page-head__actions">
-          <CollectionViewToggle value={meetingListView} onChange={changeMeetingListView} options={meetingListViewOptions} label="Представление списка встреч" />
           <button data-tour-target="meeting-create" className="primary" onClick={() => setCreate(true)}>
             <Plus size={16} />
             Новая встреча
@@ -4528,7 +4527,7 @@ function App() {
         onView={navigateToView}
       />
       <Usage orgId={org.id}/>
-      {['OWNER','ADMIN'].includes(current.role)&&<MainCloudConnections orgId={org.id}/>}
+      <MainCloudConnections orgId={org.id} canManage={['OWNER','ADMIN'].includes(current.role)}><CollectionViewToggle value={meetingListView} onChange={changeMeetingListView} options={meetingListViewOptions} label="Представление списка встреч" /></MainCloudConnections>
       {user.email.endsWith('@demo.stenograf.local')&&!['OWNER','ADMIN'].includes(current.role)&&<p><a href={location.pathname+'?surface=admin&section=cloud'}>Настроить облачные папки и режим «Файл / папка — встреча»</a> · пароль демо-админки: 1234</p>}
       <div className="metrics">
         <div>
