@@ -286,6 +286,19 @@ export function installMultimodal(c:any) {
     res.json(await db.cloudFolder.create({data:{...folder,nextRunAt:new Date()}}));
   }));
   app.put('/cloud/folders/:id',auth,wrap(async(req:any,res:any)=>{const f=await db.cloudFolder.findUnique({where:{id:req.params.id}});if(!f)throw Error('Папка не найдена');await admin(req,f.organizationId);const data:any={};if(req.body.settings)data.settings=req.body.settings;if(req.body.schedule){data.schedule=validateSchedule(req.body.schedule);data.nextRunAt=nextRuns(data.schedule)[0];}if(['active','paused'].includes(req.body.status))data.status=req.body.status;res.json(await db.cloudFolder.update({where:{id:f.id},data}));}));
+  async function checkFolders(organizationId:string,syncOne=sync){
+    const folders=await db.cloudFolder.findMany({where:{organizationId},orderBy:{createdAt:'asc'}});
+    const summary={folders:folders.length,checked:0,new:0,changed:0,queued:0,skipped:0,paused:0,reconnect:0,pending:0,errors:0};const results:any[]=[];
+    for(const folder of folders){
+      const base={id:folder.id,name:folder.name,provider:provider(folder.provider).name};
+      if(folder.status==='paused'){summary.paused++;results.push({...base,status:'paused'});continue;}
+      if(folder.status!=='active'){summary.reconnect++;results.push({...base,status:'reconnect'});continue;}
+      try{const result=await syncOne(folder);const stats=result.stats;const pending=(result.events||[]).filter((x:any)=>String(x.status).includes('Загрузка в облако ещё не завершена')).length;summary.checked++;summary.new+=stats.new;summary.changed+=stats.changed;summary.queued+=stats.new+stats.changed;summary.skipped+=stats.skipped;summary.errors+=stats.errors;summary.pending+=pending;results.push({...base,status:stats.errors?'partial':'done',stats,pending});}
+      catch(e:any){summary.errors++;results.push({...base,status:'failed',error:String(e.message||'Не удалось проверить папку').slice(0,700)});}
+    }
+    return {summary,results,completedAt:new Date().toISOString()};
+  }
+  app.post('/cloud/folders/check-all',auth,wrap(async(req:any,res:any)=>{const org=String(req.body.organizationId);await admin(req,org);res.json(await checkFolders(org));void tick();}));
   app.post('/cloud/folders/:id/check',auth,wrap(async(req:any,res:any)=>{const f=await db.cloudFolder.findUnique({where:{id:req.params.id}});if(!f)throw Error('Папка не найдена');await admin(req,f.organizationId);res.json(await sync(f));}));
   app.get('/cloud/folders/:id/runs',auth,wrap(async(req:any,res:any)=>{const f=await db.cloudFolder.findUnique({where:{id:req.params.id}});if(!f)throw Error('Папка не найдена');await admin(req,f.organizationId);res.json(await db.syncRun.findMany({where:{folderId:f.id},orderBy:{startedAt:'desc'},take:30}));}));
   app.delete('/cloud/folders/:id',auth,wrap(async(req:any,res:any)=>{const f=await db.cloudFolder.findUnique({where:{id:req.params.id}});if(!f)throw Error('Папка не найдена');await admin(req,f.organizationId);await db.cloudFolder.delete({where:{id:f.id}});res.json({ok:true});}));
@@ -353,5 +366,5 @@ export function installMultimodal(c:any) {
       res.status(202).json({...result,status:'processing'});void tick();
     }catch(e:any){if(req.file)await fs.unlink(req.file.path).catch(()=>{});res.status(400).json({error:e.message});}
   }
-  return {reserve,config,visual,root,chat,attachReportSources,autoIllustration,createIllustration,queue,acceptLegacyMedia};
+  return {reserve,config,visual,root,chat,attachReportSources,autoIllustration,createIllustration,queue,acceptLegacyMedia,checkFolders};
 }

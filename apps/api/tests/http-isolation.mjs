@@ -48,6 +48,11 @@ try{
  const foreignAdmin=(await request('/auth/demo-admin-session',{password:'1234'},browsers[1])).data;
  assert.equal((await request(mainSettings,null,browsers[1],foreignAdmin.token)).status,403);
  assert.equal((await request('/cloud/main-settings?organizationId='+orgs[1],null,browsers[1],foreignAdmin.token)).data.enabled,true);
+ assert.equal((await request('/cloud/folders/check-all',{organizationId:org},browsers[0],a.token)).status,403);
+ assert.equal((await request('/cloud/folders/check-all',{organizationId:org},browsers[1],foreignAdmin.token)).status,403);
+ const emptyScan=await request('/cloud/folders/check-all',{organizationId:org},browsers[0],admin.token);
+ assert.equal(emptyScan.status,200);assert.equal(emptyScan.data.summary.folders,0);assert.equal(emptyScan.data.summary.queued,0);
+ assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],admin.token)).data.remaining,3);
  const providers=(await request('/cloud/providers',null,browsers[0],admin.token)).data;
  assert.equal(providers.length,5);
  const version=await db.analysisVersion.create({data:{meetingId:own[0].id,number:1,state:'applied',result:{summary:'Fixture'},snapshot:{}}});

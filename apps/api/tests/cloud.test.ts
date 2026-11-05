@@ -80,6 +80,14 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   assert.equal(replaced.id,image.id);assert.notEqual(replaced.localPath,image.localPath);assert.equal(replaced.needsReview,false);assert.equal(replaced.caption,image.caption);
   assert.equal(await db.reportImage.count({where:{versionId:nextVersion.id}}),1);
   await assert.rejects(()=>fs.access(image.localPath));await fs.access(replaced.localPath);
+  const scanFolders=await db.cloudFolder.findMany({where:{organizationId:org.id},orderBy:{createdAt:'asc'}});
+  const checkedIds:string[]=[];
+  const scanned=await service.checkFolders(org.id,async(f:any)=>{checkedIds.push(f.id);if(f.id===scanFolders[0].id)throw Error('Fixture provider unavailable');return {stats:{new:2,changed:1,skipped:4,errors:0},events:[{status:'Загрузка в облако ещё не завершена'}]};});
+  assert.equal(scanned.summary.errors,1);assert.equal(scanned.summary.queued,(scanFolders.length-1)*3);assert.equal(checkedIds.length,scanFolders.length);assert.equal(scanned.summary.pending,scanFolders.length-1);
+  await db.cloudFolder.update({where:{id:scanFolders[0].id},data:{status:'paused'}});
+  await db.cloudFolder.update({where:{id:scanFolders[1].id},data:{status:'reconnect'}});
+  const skippedScan=await service.checkFolders(org.id,async()=>{throw Error('Should not scan inactive folder');});
+  assert.equal(skippedScan.summary.paused,1);assert.equal(skippedScan.summary.reconnect,1);assert.equal(skippedScan.summary.checked,0);assert.equal(skippedScan.summary.errors,0);
  }finally{
   if(org){await db.processingJob.deleteMany({where:{organizationId:org.id}});await db.material.deleteMany({where:{organizationId:org.id}});await db.cloudFolder.deleteMany({where:{organizationId:org.id}});await db.aiOperation.deleteMany({where:{organizationId:org.id}});await db.demoSpace.deleteMany({where:{organizationId:org.id}});await db.devSetting.deleteMany({where:{organizationId:org.id}});await db.organization.delete({where:{id:org.id}});await db.user.deleteMany({where:{email:'test-'+tag+'@example.invalid'}});}
   await db.$disconnect();

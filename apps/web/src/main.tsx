@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from "./api";
 import KnowledgeTransfer from "./KnowledgeTransfer";
+import CloudStorageCheck from "./CloudStorageCheck";
 import ServerRemoval from "./ServerRemoval";
 import {AdminLink,Usage,ImportMaterial,CloudFolders,MainCloudConnections,DeveloperCloud,MaterialGallery,VersionPanel} from './CloudWorkspace';
 import meetingsEditorial from "./assets/meetings-editorial.png";
@@ -796,8 +797,8 @@ const mediaFileKind = (file: File): "audio" | "video" | null => {
 const fileCountLabel = (count: number) => `${count} ${count % 10 === 1 && count % 100 !== 11 ? "файл" : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? "файла" : "файлов"}`;
 const meetingAttachmentKind=(file:File)=>mediaFileKind(file)||(/\.(jpe?g|png|webp|tiff?)$/i.test(file.name)?'image':/\.(txt|md|pdf|docx|rtf|csv|xlsx|pptx)$/i.test(file.name)?'document':null);
 
-function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId: string, processing: boolean) => void; onCancel: () => void }) {
-  const [form, setForm] = useState<{title:string;departmentId:string;templateId:string;notes:string;illustrations:boolean;source:'upload'|'link';cloudUrl:string}>(() => ({
+function MeetingCreate({ org, canCheckCloud, onDone, onCancel }: { org: Org; canCheckCloud:boolean; onDone: (meetingId: string, processing: boolean) => void; onCancel: () => void }) {
+  const [form, setForm] = useState<{title:string;departmentId:string;templateId:string;notes:string;illustrations:boolean;source:'upload'|'link'|'sync';cloudUrl:string}>(() => ({
       title: "",
       departmentId: org.departments[0]?.id || "",
       templateId: org.templates[0]?.id || "",
@@ -818,6 +819,7 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
     [confirmCancel, setConfirmCancel] = useState(false),
     [cancelBusy, setCancelBusy] = useState(false),
     [cancelError, setCancelError] = useState("");
+  useEffect(()=>{if(!canCheckCloud&&form.source==='sync')setForm(f=>({...f,source:'upload'}));},[canCheckCloud,form.source]);
   const mediaInput = useRef<HTMLInputElement>(null);
   useEffect(()=>{sessionStorage.setItem('secretary-create-draft:'+org.id,JSON.stringify(form));},[form,org.id]);
   const titleInput = useRef<HTMLInputElement>(null);
@@ -968,12 +970,12 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
     <section className="compose">
       <div className="compose-heading">
         <button type="button" className="back" disabled={busy || cancelBusy} onClick={requestCancel}>← Все встречи</button>
-        <h1>Новая встреча</h1>
+        <h1>{form.source==='sync'?'Проверка облачного хранилища':'Новая встреча'}</h1>
         <p>
-          Добавьте заметки, файлы с компьютера или ссылку на запись в облаке. Материалы и результаты сохранятся в одной встрече.
+          {form.source==='sync'?'Найдите новые материалы в папках, настроенных в админке.':'Добавьте заметки, файлы с компьютера или ссылку на запись в облаке. Материалы и результаты сохранятся в одной встрече.'}
         </p>
       </div>
-      <div className="form-grid">
+      {form.source!=='sync'&&<><div className="form-grid">
         <label data-tour-target="meeting-title" className={titleError ? "compose-title-invalid" : undefined}>
           Название встречи
           <input
@@ -1021,8 +1023,9 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
         />
       </label>
-      <section className="compose-material-source"><h2>Материалы встречи</h2><div className="compose-source-switch" role="group" aria-label="Источник материалов"><button type="button" aria-pressed={form.source==='upload'} disabled={busy||recording||!!createdMeetingId.current} onClick={()=>setForm({...form,source:'upload'})}>Файлы с компьютера</button><button type="button" aria-pressed={form.source==='link'} disabled={busy||recording||!!createdMeetingId.current} onClick={()=>setForm({...form,source:'link'})}>Ссылка на файл в облаке</button></div>
-      {form.source==='link'?<label className="compose-cloud-link">Ссылка на видеозапись или другой файл<input type="url" value={form.cloudUrl} disabled={busy} placeholder="https://disk.yandex.ru/i/…" onChange={e=>setForm({...form,cloudUrl:e.target.value})}/><small>Укажите конкретный файл. После создания встречи скачивание, распознавание и AI-анализ запустятся автоматически. Повторная неизменённая ссылка откроет сохранённый результат.</small></label>:<>
+      </>}
+      <section className="compose-material-source"><h2>Материалы встречи</h2><div className="compose-source-switch" role="group" aria-label="Источник материалов"><button type="button" aria-pressed={form.source==='upload'} disabled={busy||recording||!!createdMeetingId.current} onClick={()=>setForm({...form,source:'upload'})}>Файлы с компьютера</button><button type="button" aria-pressed={form.source==='link'} disabled={busy||recording||!!createdMeetingId.current} onClick={()=>setForm({...form,source:'link'})}>Ссылка на файл в облаке</button><button type="button" aria-pressed={form.source==='sync'} title={!canCheckCloud?'Доступно владельцу и администратору':undefined} disabled={!canCheckCloud||busy||recording||!!createdMeetingId.current} onClick={()=>setForm({...form,source:'sync'})}>Проверить облачное хранилище</button></div>
+      {form.source==='sync'?(canCheckCloud&&<CloudStorageCheck key={org.id} orgId={org.id} onViewMeetings={onCancel}/>):form.source==='link'?<label className="compose-cloud-link">Ссылка на видеозапись или другой файл<input type="url" value={form.cloudUrl} disabled={busy} placeholder="https://disk.yandex.ru/i/…" onChange={e=>setForm({...form,cloudUrl:e.target.value})}/><small>Укажите конкретный файл. После создания встречи скачивание, распознавание и AI-анализ запустятся автоматически. Повторная неизменённая ссылка откроет сохранённый результат.</small></label>:<>
       <input ref={mediaInput} className="media-picker-input" type="file" multiple accept="audio/*,video/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.oga,.opus,.wma,.aiff,.aif,.amr,.caf,.alac,.mp4,.mov,.mkv,.avi,.webm,.mpeg,.mpg,.m4v,.wmv,.flv,.ts,.mts,.m2ts,.3gp,.ogv,.vob,.jpg,.jpeg,.png,.webp,.tif,.tiff,.txt,.md,.pdf,.docx,.rtf,.csv,.xlsx,.pptx" onChange={(event) => { chooseMedia(Array.from(event.target.files || [])); event.target.value = ""; }} />
       <button data-tour-target="meeting-materials" type="button" className={`audio-drop media-drop${dragging ? " media-drop--dragging" : ""}`} onClick={() => mediaInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }} onDragLeave={(event) => { event.preventDefault(); if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event) => { event.preventDefault(); setDragging(false); chooseMedia(Array.from(event.dataTransfer.files)); }}>
         <FileAudio size={22} />
@@ -1036,7 +1039,7 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
       {mediaFiles.length > 0 && <ul className="media-selection">{mediaFiles.map((item, index) => <li key={`${item.name}-${index}`}>{mediaFileKind(item) === "video" ? <FileVideo size={16} /> : mediaFileKind(item)==='audio'?<FileAudio size={16}/>:<FileText size={16}/>}<span>{item.name}</span><small>{{video:'Видео',audio:'Аудио',image:'Изображение',document:'Документ'}[meetingAttachmentKind(item)||'document']}</small></li>)}</ul>}
       {mediaFiles.some((item) => mediaFileKind(item) === "video") && <p className="local-preparation"><CheckCircle2 size={15} /> Аудио из видео извлекается локально на сервере; исходное видео в AI не передаётся.</p>}
       </>}</section>
-      <label className="cloud-check"><input type="checkbox" checked={form.illustrations} onChange={e=>setForm({...form,illustrations:e.target.checked})}/>Добавлять AI-иллюстрации, если они поясняют результат</label>
+      {form.source!=='sync'&&<><label className="cloud-check"><input type="checkbox" checked={form.illustrations} onChange={e=>setForm({...form,illustrations:e.target.checked})}/>Добавлять AI-иллюстрации, если они поясняют результат</label>
       {error && <p className="error">{error}</p>}
       {/ключ|лимит/i.test(error)&&<><AdminLink meetingId={createdMeetingId.current||undefined}/><p>Текст и параметры сохранены. После возвращения выберите локальный файл заново, если браузер его сбросит.</p></>}
       <div className="compose-actions">
@@ -1052,6 +1055,7 @@ function MeetingCreate({ org, onDone, onCancel }: { org: Org; onDone: (meetingId
         </button>
         <span>Состояние обработки появится в карточке встречи.</span>
       </div>
+      </>}
       {confirmCancel && <div className="publication-modal meeting-confirm" role="dialog" aria-modal="true" aria-labelledby="discard-meeting-title" onClick={() => !cancelBusy && setConfirmCancel(false)}>
         <div onClick={(event) => event.stopPropagation()}>
           <button className="modal-close" type="button" aria-label="Закрыть" disabled={cancelBusy} onClick={() => setConfirmCancel(false)}><X size={18} /></button>
@@ -4481,7 +4485,8 @@ function App() {
   ) : create ? (
     <MeetingCreate
       org={org}
-      onCancel={() => { setCreate(false); setView("meetings"); }}
+      canCheckCloud={['OWNER','ADMIN'].includes(current.role)}
+      onCancel={() => { setCreate(false); setView("meetings"); void api<Meeting[]>(`/meetings?organizationId=${org.id}`).then(setMeetings); }}
       onDone={(meetingId, processing) => {
         setCreate(false);
         setView("meetings");
