@@ -1,0 +1,456 @@
+generator client {
+ provider = "prisma-client-js"
+}
+datasource db {
+ provider = "postgresql"
+ url = env("DATABASE_URL")
+}
+enum OrgRole {
+ OWNER
+ ADMIN
+ DEPARTMENT_HEAD
+ MEMBER
+ GUEST
+}
+enum InviteRole {
+ VIEWER
+ EDITOR
+}
+enum MeetingState {
+ DRAFT
+ PROCESSING
+ READY
+ FAILED
+ ARCHIVED
+}
+enum TaskKind {
+ DRAFT
+ IN_PROGRESS
+ DONE
+ CANCELLED
+ ARCHIVED
+}
+enum RetentionKind {
+ MANUAL
+ AFTER_TRANSCRIPTION
+ DAYS
+}
+enum NotificationKind {
+ INVITE
+ TASK_ASSIGNED
+ DEADLINE
+ SYSTEM
+}
+model User {
+ id String @id @default(cuid())
+ email String @unique
+ passwordHash String
+ name String
+ phone String?
+ jobTitle String?
+ avatarDataUrl String?
+ createdAt DateTime @default(now())
+ memberships Membership[]
+ meetings Meeting[] @relation("Creator")
+ assignedTasks Task[] @relation("Assignee")
+ notifications Notification[]
+ comments TaskComment[]
+ auditLogs AuditLog[]
+ materials Material[]
+ cloudAccounts CloudAccount[]
+ cloudFolders CloudFolder[]
+ oauthAttempts OAuthAttempt[]
+}
+model Organization {
+ id String @id @default(cuid())
+ name String
+ slug String @unique
+ createdAt DateTime @default(now())
+ departments Department[]
+ memberships Membership[]
+ templates MeetingTemplate[]
+ taskStatuses TaskStatus[]
+ meetings Meeting[]
+ retention AudioRetentionPolicy?
+ settings DevSetting[]
+ auditLogs AuditLog[]
+ demoSpace DemoSpace?
+ aiOperations AiOperation[]
+ materials Material[]
+ processingJobs ProcessingJob[]
+ reportImages ReportImage[]
+ cloudAccounts CloudAccount[]
+ cloudFolders CloudFolder[]
+ oauthAttempts OAuthAttempt[]
+}
+model Department {
+ id String @id @default(cuid())
+ name String
+ organizationId String
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ memberships Membership[]
+ meetings Meeting[]
+ @@unique([organizationId,name])
+}
+model Membership {
+ id String @id @default(cuid())
+ userId String
+ organizationId String
+ departmentId String?
+ role OrgRole @default(MEMBER)
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ department Department? @relation(fields:[departmentId],references:[id])
+ @@unique([userId,organizationId,departmentId])
+}
+model MeetingTemplate {
+ id String @id @default(cuid())
+ organizationId String
+ name String
+ description String
+ instructions String
+ fields Json @default("[]")
+ isDefault Boolean @default(false)
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ meetings Meeting[]
+ createdAt DateTime @default(now())
+}
+model Meeting {
+ id String @id @default(cuid())
+ organizationId String
+ departmentId String
+ creatorId String
+ templateId String?
+ title String
+ state MeetingState @default(DRAFT)
+ notes String?
+ summary String?
+ decisionsText String?
+ risksText String?
+ followUp String?
+ analysis Json?
+ error String?
+ processingStartedAt DateTime?
+ processingStage String?
+ sourceKind String @default("manual")
+ materialKind String @default("text")
+ activeVersionId String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ department Department @relation(fields:[departmentId],references:[id])
+ creator User @relation("Creator",fields:[creatorId],references:[id])
+ template MeetingTemplate? @relation(fields:[templateId],references:[id])
+ transcript Transcript?
+ mediaSources MediaSource[]
+ decisions Decision[]
+ tasks Task[]
+ invites MeetingInvite[]
+ chatMessages MeetingChatMessage[]
+ versions AnalysisVersion[]
+ materials Material[]
+ reportImages ReportImage[]
+ aiOperations AiOperation[]
+}
+model MediaSource {
+ id String @id @default(cuid())
+ meetingId String
+ name String
+ kind String
+ originalPath String?
+ tracks Json @default("[]")
+ offsetMs Int @default(0)
+ status String @default("uploaded")
+ error String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ meeting Meeting @relation(fields:[meetingId],references:[id],onDelete:Cascade)
+}
+model Transcript {
+ id String @id @default(cuid())
+ meetingId String @unique
+ text String
+ source String
+ audioPath String?
+ status String @default("ready")
+ createdAt DateTime @default(now())
+ meeting Meeting @relation(fields:[meetingId],references:[id],onDelete:Cascade)
+}
+model Decision {
+ id String @id @default(cuid())
+ meetingId String
+ text String
+ evidence String?
+ meeting Meeting @relation(fields:[meetingId],references:[id],onDelete:Cascade)
+}
+model TaskStatus {
+ id String @id @default(cuid())
+ organizationId String
+ name String
+ key TaskKind
+ position Int
+ transitions Json @default("[]")
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ tasks Task[]
+ @@unique([organizationId,key])
+}
+model Task {
+ id String @id @default(cuid())
+ meetingId String
+ title String
+ description String?
+ evidence String?
+ assigneeId String?
+ dueDate DateTime?
+ needsClarification Boolean @default(false)
+ statusId String
+ meeting Meeting @relation(fields:[meetingId],references:[id],onDelete:Cascade)
+ assignee User? @relation("Assignee",fields:[assigneeId],references:[id])
+ status TaskStatus @relation(fields:[statusId],references:[id])
+ comments TaskComment[]
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model TaskComment {
+ id String @id @default(cuid())
+ taskId String
+ authorId String
+ body String
+ createdAt DateTime @default(now())
+ task Task @relation(fields:[taskId],references:[id],onDelete:Cascade)
+ author User @relation(fields:[authorId],references:[id])
+}
+model MeetingInvite {
+ id String @id @default(cuid())
+ meetingId String
+ email String
+ role InviteRole
+ token String @unique
+ revokedAt DateTime?
+ acceptedAt DateTime?
+ meeting Meeting @relation(fields:[meetingId],references:[id],onDelete:Cascade)
+ createdAt DateTime @default(now())
+}
+model MeetingChatMessage {
+ id String @id @default(cuid())
+ meetingId String
+ role String
+ content String
+ versionId String?
+ createdAt DateTime @default(now())
+ meeting Meeting @relation(fields:[meetingId],references:[id],onDelete:Cascade)
+}
+
+model DemoSpace {
+ id String @id @default(cuid())
+ browserHash String @unique
+ organizationId String @unique
+ used Int @default(0)
+ createdAt DateTime @default(now())
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+}
+model AiOperation {
+ id String @id
+ organizationId String
+ meetingId String?
+ kind String
+ createdAt DateTime @default(now())
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ meeting Meeting? @relation(fields:[meetingId],references:[id],onDelete:SetNull)
+}
+model AnalysisVersion {
+ id String @id @default(cuid())
+ meetingId String
+ number Int
+ result Json
+ snapshot Json
+ state String @default("pending")
+ questions Int @default(0)
+ illustrationError String?
+ operationId String? @unique
+ createdAt DateTime @default(now())
+ meeting Meeting @relation(fields:[meetingId],references:[id],onDelete:Cascade)
+ images ReportImage[]
+ @@unique([meetingId,number])
+}
+model Material {
+ id String @id @default(cuid())
+ organizationId String
+ ownerId String
+ meetingId String?
+ folderId String?
+ name String
+ kind String
+ origin String @default("manual")
+ provider String?
+ providerFileId String?
+ providerVersion String?
+ normalizedUrl String?
+ fingerprint String @unique
+ checksum String?
+ localPath String?
+ mime String?
+ bytes Int @default(0)
+ text String?
+ visual Json?
+ selected Boolean @default(true)
+ position Int @default(0)
+ status String @default("queued")
+ error String?
+ available Boolean @default(true)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ owner User @relation(fields:[ownerId],references:[id],onDelete:Cascade)
+ meeting Meeting? @relation(fields:[meetingId],references:[id],onDelete:Cascade)
+ folder CloudFolder? @relation(fields:[folderId],references:[id],onDelete:SetNull)
+ job ProcessingJob?
+ images ReportImage[]
+ @@index([organizationId,meetingId])
+}
+model ProcessingJob {
+ id String @id @default(cuid())
+ materialId String @unique
+ organizationId String
+ operationId String @unique
+ stage String @default("Получение файла")
+ status String @default("queued")
+ payload Json
+ error String?
+ startedAt DateTime?
+ completedAt DateTime?
+ leaseUntil DateTime?
+ createdAt DateTime @default(now())
+ material Material @relation(fields:[materialId],references:[id],onDelete:Cascade)
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+}
+model ReportImage {
+ id String @id @default(cuid())
+ organizationId String
+ meetingId String
+ versionId String
+ materialId String?
+ origin String
+ localPath String
+ caption String
+ prompt String?
+ model String?
+ position Int @default(0)
+ included Boolean @default(true)
+ needsReview Boolean @default(false)
+ createdAt DateTime @default(now())
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ meeting Meeting @relation(fields:[meetingId],references:[id],onDelete:Cascade)
+ version AnalysisVersion @relation(fields:[versionId],references:[id],onDelete:Cascade)
+ material Material? @relation(fields:[materialId],references:[id],onDelete:SetNull)
+}
+model CloudAccount {
+ id String @id @default(cuid())
+ organizationId String
+ ownerId String
+ provider String
+ label String
+ tokens String
+ status String @default("connected")
+ expiresAt DateTime?
+ createdAt DateTime @default(now())
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ owner User @relation(fields:[ownerId],references:[id],onDelete:Cascade)
+ folders CloudFolder[]
+}
+model OAuthAttempt {
+ id String @id
+ organizationId String
+ ownerId String
+ provider String
+ verifier String
+ expiresAt DateTime
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ owner User @relation(fields:[ownerId],references:[id],onDelete:Cascade)
+}
+model CloudFolder {
+ id String @id @default(cuid())
+ organizationId String
+ ownerId String
+ accountId String?
+ provider String
+ name String
+ url String
+ providerFolderId String
+ settings Json
+ schedule Json
+ registry Json @default("{}")
+ status String @default("active")
+ lastRunAt DateTime?
+ nextRunAt DateTime?
+ leaseUntil DateTime?
+ error String?
+ createdAt DateTime @default(now())
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+ owner User @relation(fields:[ownerId],references:[id],onDelete:Cascade)
+ account CloudAccount? @relation(fields:[accountId],references:[id],onDelete:SetNull)
+ materials Material[]
+ runs SyncRun[]
+}
+model SyncRun {
+ id String @id @default(cuid())
+ folderId String
+ status String @default("running")
+ stats Json @default("{}")
+ events Json @default("[]")
+ startedAt DateTime @default(now())
+ completedAt DateTime?
+ folder CloudFolder @relation(fields:[folderId],references:[id],onDelete:Cascade)
+}
+model Notification {
+ id String @id @default(cuid())
+ userId String
+ kind NotificationKind
+ title String
+ body String
+ link String?
+ readAt DateTime?
+ createdAt DateTime @default(now())
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+}
+model AudioRetentionPolicy {
+ id String @id @default(cuid())
+ organizationId String @unique
+ kind RetentionKind @default(DAYS)
+ days Int @default(30)
+ organization Organization @relation(fields:[organizationId],references:[id],onDelete:Cascade)
+}
+model AuditLog {
+ id String @id @default(cuid())
+ organizationId String?
+ actorId String?
+ action String
+ entity String
+ entityId String?
+ details Json?
+ createdAt DateTime @default(now())
+ organization Organization? @relation(fields:[organizationId],references:[id])
+ actor User? @relation(fields:[actorId],references:[id])
+}
+model DevSetting {
+ id String @id @default(cuid())
+ organizationId String?
+ key String @unique
+ value String?
+ organization Organization? @relation(fields:[organizationId],references:[id])
+ updatedAt DateTime @updatedAt
+}
+model PublicationProfile {
+ id String @id @default(cuid())
+ name String @unique
+ publicUrl String
+ environment String
+ host String
+ sshUser String
+ sshPort Int @default(22)
+ installPath String
+ healthPath String
+ secretCiphertext String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}

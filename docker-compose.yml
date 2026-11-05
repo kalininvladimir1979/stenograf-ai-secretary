@@ -1,0 +1,13 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: secretary
+      POSTGRES_PASSWORD: secretary
+      POSTGRES_DB: meeting_secretary
+    ports:
+      - "5441:5432"
+    volumes:
+      - secretary_data:/var/lib/postgresql/data
+volumes:
+  secretary_data:

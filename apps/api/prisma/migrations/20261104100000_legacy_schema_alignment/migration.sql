@@ -1,0 +1,6 @@
+-- Record additive changes that the original application had applied with db push.
+-- IF NOT EXISTS preserves databases already containing these legacy fields/tables.
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "phone" TEXT, ADD COLUMN IF NOT EXISTS "jobTitle" TEXT, ADD COLUMN IF NOT EXISTS "avatarDataUrl" TEXT;
+CREATE TABLE IF NOT EXISTS "MediaSource" ("id" TEXT PRIMARY KEY,"meetingId" TEXT NOT NULL,"name" TEXT NOT NULL,"kind" TEXT NOT NULL,"originalPath" TEXT,"tracks" JSONB NOT NULL DEFAULT '[]',"offsetMs" INTEGER NOT NULL DEFAULT 0,"status" TEXT NOT NULL DEFAULT 'uploaded',"error" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL,CONSTRAINT "MediaSource_meetingId_fkey" FOREIGN KEY ("meetingId") REFERENCES "Meeting"("id") ON DELETE CASCADE ON UPDATE CASCADE);
+CREATE TABLE IF NOT EXISTS "PublicationProfile" ("id" TEXT PRIMARY KEY,"name" TEXT NOT NULL,"publicUrl" TEXT NOT NULL,"environment" TEXT NOT NULL,"host" TEXT NOT NULL,"sshUser" TEXT NOT NULL,"sshPort" INTEGER NOT NULL DEFAULT 22,"installPath" TEXT NOT NULL,"healthPath" TEXT NOT NULL,"secretCiphertext" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS "PublicationProfile_name_key" ON "PublicationProfile"("name");

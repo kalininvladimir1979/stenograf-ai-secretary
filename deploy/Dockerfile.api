@@ -1,0 +1,32 @@
+FROM node:20-bookworm-slim AS build
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+RUN npm ci
+COPY apps/api apps/api
+COPY apps/web apps/web
+COPY deploy deploy
+COPY docker-compose.yml docker-compose.yml
+RUN npm run prisma:generate -w @secretary/api \
+    && npm run build -w @secretary/api \
+    && mkdir -p apps/api/dist/shared \
+    && cp apps/api/shared/llm-channel.mjs apps/api/dist/shared/llm-channel.mjs
+
+FROM node:20-bookworm-slim
+WORKDIR /app
+ENV NODE_ENV=production
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pil poppler-utils unrtf fonts-dejavu-core ffmpeg openssl ca-certificates openssh-client sshpass \
+    && rm -rf /var/lib/apt/lists/*
+COPY --chown=node:node --from=build /app/node_modules /app/node_modules
+COPY --from=build /app/package.json /app/package.json
+COPY --from=build /app/package-lock.json /app/package-lock.json
+COPY --from=build /app/docker-compose.yml /app/docker-compose.yml
+COPY --from=build /app/apps /app/apps
+COPY --from=build /app/deploy /app/deploy
+RUN mkdir -p /storage/audio /storage/video-tmp && chown -R node:node /storage
+USER node
+EXPOSE 3002
+CMD ["sh", "-c", "npx prisma db push --schema apps/api/prisma/schema.prisma && node apps/api/dist/src/index.js"]

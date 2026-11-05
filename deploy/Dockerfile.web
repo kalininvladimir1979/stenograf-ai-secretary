@@ -1,0 +1,15 @@
+FROM node:20-bookworm-slim AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+RUN npm ci
+COPY apps/web apps/web
+ARG VITE_BASE_PATH=/ai-sekretar261026/
+ENV VITE_BASE_PATH=$VITE_BASE_PATH
+RUN npm run build -w @secretary/web
+
+FROM nginx:1.27-alpine
+COPY deploy/app.nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+EXPOSE 80
