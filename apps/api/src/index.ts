@@ -117,7 +117,7 @@ async function auth(req: Authed, res: Response, next: NextFunction) {
         (req.path.startsWith("/tasks") && req.query.calendar === "1" && !config.features.calendar) ||
         (req.path.startsWith("/tasks") && req.query.calendar !== "1" && !config.features.tasks) ||
         (req.path.startsWith("/notifications") && !config.features.notifications) ||
-        (req.path.endsWith("/chat") && !config.features.chat) ||
+        ((req.path.endsWith("/chat") || req.path.endsWith("/chat-dictation")) && !config.features.chat) ||
         ((req.path.endsWith("/retry") || req.path.endsWith("/text") || req.path.endsWith("/audio") || req.path.endsWith("/video") || req.path.endsWith("/dictation") || req.path.endsWith("/chat-dictation")) && req.method === "POST" && !config.features.analysis);
       if (blocked) return res.status(403).json({ error: "Функция выключена в демо-режиме." });
     }

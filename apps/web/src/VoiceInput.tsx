@@ -10,12 +10,12 @@ export async function transcribeVoice(meetingId:string,blob:Blob,signal:AbortSig
 }
 export function useVoiceInput(owner:string,onText:(text:string,send:boolean)=>void,transcribe:(blob:Blob,signal:AbortSignal)=>Promise<{text:string}>){
  const [state,setState]=useState<DictationState>('idle'),[seconds,setSeconds]=useState(0),[level,setLevel]=useState(0),[error,setError]=useState('');
- const client=useRef<ReturnType<typeof createVoiceDictation>|null>(null),send=useRef(false),callbacks=useRef({onText,transcribe});callbacks.current={onText,transcribe};
- const cancel=()=>{client.current?.cancel();client.current=null;send.current=false;};
+ const client=useRef<ReturnType<typeof createVoiceDictation>|null>(null),send=useRef(false),stopping=useRef(false),currentOwner=useRef(owner),callbacks=useRef({onText,transcribe});callbacks.current={onText,transcribe};currentOwner.current=owner;
+ const cancel=()=>{client.current?.cancel();client.current=null;send.current=false;stopping.current=false;};
  useEffect(()=>{setError('');setSeconds(0);return cancel;},[owner]);
  useEffect(()=>{if(state!=='recording')return;const began=Date.now();const timer=setInterval(()=>setSeconds(Math.floor((Date.now()-began)/1000)),250);return()=>clearInterval(timer);},[state]);
- const start=()=>{if(client.current)return;setError('');setSeconds(0);send.current=false;const session=createVoiceDictation({transcribe:(blob,signal)=>callbacks.current.transcribe(blob,signal),onState:s=>{setState(s);if(s==='idle')client.current=null;},onLevel:setLevel,onError:setError,onText:text=>callbacks.current.onText(text,send.current)});client.current=session;void session.start();};
- const stop=(submit=false)=>{send.current=submit;client.current?.stop();};
+ const start=()=>{if(client.current)return;setError('');setSeconds(0);send.current=false;stopping.current=false;const session=createVoiceDictation({transcribe:(blob,signal)=>callbacks.current.transcribe(blob,signal),onState:s=>{setState(s);if(s==='idle')client.current=null;},onLevel:setLevel,onError:setError,onText:text=>{if(currentOwner.current===owner)callbacks.current.onText(text,send.current);}});client.current=session;void session.start();};
+ const stop=(submit=false)=>{if(stopping.current)return;stopping.current=true;send.current=submit;client.current?.stop();};
  return {state,seconds,level,error,start,stop,cancel};
 }
 export function VoiceMeter({seconds,level}:{seconds:number;level:number}){return <span className="voice-input-meter"><span aria-label="Время записи">{String(Math.floor(seconds/60)).padStart(2,'0')}:{String(seconds%60).padStart(2,'0')}</span><span className="voice-input-meter__track" role="meter" aria-label="Уровень входного аудиосигнала" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(level*100)}><i style={{height:`${Math.max(.1,level)*100}%`}}/></span></span>;}
