@@ -2903,6 +2903,14 @@ main {
 .publication-modal p { margin: 10px 0 20px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .publication-modal .publication-modal__error { padding: 10px 12px; border: 1px solid var(--danger); background: var(--canvas); color: var(--danger); }
 .publication-modal footer { display: flex; justify-content: flex-end; gap: 8px; }
+.workspace-signin-dialog { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; padding: 26px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); box-shadow: 0 20px 56px #0005; }
+.workspace-signin-dialog::backdrop { background: #11121199; backdrop-filter: blur(4px); }
+.workspace-signin-dialog .modal-close { float: right; display: grid; place-items: center; width: 30px; height: 30px; border: 0; background: transparent; color: var(--muted); }
+.workspace-signin-dialog .modal-close:hover { background: var(--soft); color: var(--ink); }
+.workspace-signin-dialog small { color: var(--muted); font-size: 10px; letter-spacing: .08em; }
+.workspace-signin-dialog h2 { margin: 12px 0; font: 500 26px/1.25 "Playfair Display", serif; }
+.workspace-signin-dialog p { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.workspace-signin-dialog footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 .workspace-guide > section { width: min(100%, 500px); padding: 23px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); box-shadow: 0 20px 56px rgba(0, 0, 0, .28); }
 .workspace-tour { background: transparent; backdrop-filter: none; }
 .workspace-tour > section { position: fixed; z-index: 105; right: 26px; bottom: 26px; }

@@ -50,6 +50,7 @@ import KnowledgeTransfer from "./KnowledgeTransfer";
 import CloudStorageCheck from "./CloudStorageCheck";
 import TranscriptView from "./TranscriptView";
 import {modelCatalogOrganizations,shouldStartPublicDemo,workspaceUrl} from "./workspace-access";
+import WorkspaceSignInDialog from "./WorkspaceSignInDialog";
 import AdminInstructions,{InstructionsHelp} from "./Instructions";
 
 import ChatComposer,{useVoiceInput,transcribeVoice,VoiceMeter} from "./VoiceInput";
@@ -3096,6 +3097,7 @@ function Dev({ onBack }: { onBack: () => void }) {
   const [fontScale, setFontScale] = useState(() => Number(localStorage.getItem("secretary-font-scale") || 100));
   const [fontMenuOpen, setFontMenuOpen] = useState(false);
   const publicDemoReadOnly = demoMode && !["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const [confirmWorkspaceSignIn, setConfirmWorkspaceSignIn] = useState(false);
   const catalogOrganizations = modelCatalogOrganizations(organizations);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -3336,7 +3338,10 @@ function Dev({ onBack }: { onBack: () => void }) {
           <select
             aria-label="Организация для обновления моделей"
             value={catalogOrgId}
-            onChange={(e) => setCatalogOrgId(e.target.value)}
+            onChange={(e) => {
+              if (e.target.value === "__workspace_sign_in__") setConfirmWorkspaceSignIn(true);
+              else setCatalogOrgId(e.target.value);
+            }}
           >
             {!catalogOrganizations.length && <option value="">Нет рабочих организаций</option>}
             {catalogOrganizations.map((organization) => (
@@ -3344,12 +3349,13 @@ function Dev({ onBack }: { onBack: () => void }) {
                 {organization.name}{organization.isCurrentDemo ? " · текущий браузер" : ""}
               </option>
             ))}
+            <option value="__workspace_sign_in__">Рабочее пространство — войти</option>
           </select>
           <button
             type="button"
             className="model-help"
             aria-label="Как выбрать организацию для обновления моделей"
-            data-tooltip="Выберите рабочую организацию или текущее демо-пространство этого браузера. Демо-пространства других посетителей здесь не показываются. Для проверки сначала используется ключ организации, а при его отсутствии — ключ разработчика."
+            data-tooltip="Выберите организацию для обновления моделей. «Рабочее пространство — войти» откроет подтверждение перехода к входу по email и паролю аккаунта. Демо других посетителей скрыты. Для моделей используется ключ организации, а при его отсутствии — ключ разработчика."
           >
             <Info size={15} />
           </button>
@@ -3363,6 +3369,10 @@ function Dev({ onBack }: { onBack: () => void }) {
           {refreshingModels ? "Обновляем…" : "Ресканировать модели"}
         </button>
         {modelError && <p className="error">{modelError}</p>}
+        {confirmWorkspaceSignIn && <WorkspaceSignInDialog onCancel={() => setConfirmWorkspaceSignIn(false)} onConfirm={() => {
+          sessionStorage.removeItem("secretary-dev-password");
+          window.location.assign(workspaceUrl(true));
+        }}/>}
       </section>
       <nav className="tabs">
         <button className={tab==='cloud'?'active':''} onClick={()=>setTab('cloud')}>Облака и демо-лимиты</button>
