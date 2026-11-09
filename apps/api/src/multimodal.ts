@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash,randomUUID,randomBytes} from 'node:crypto';
 import multer from 'multer';
+import {assertDemoMeetingCapacity,demoMeetingCount} from './demo-meetings.js';
 import {cloudJsonFetch,yandexPublicFile} from './cloud-http.js';
 import {providers,providerOf,downloadFile,safeResponse,kindOf,nextRuns,validateSchedule} from './cloud-core.js';
 
@@ -19,7 +20,7 @@ export function installMultimodal(c:any) {
   const admin=async(req:any,org:string)=>{const m=await member(req.user.id,org);if(!m||!['OWNER','ADMIN'].includes(m.role))throw Error('Нет доступа к настройкам организации');return m;};
   const accessible=async(req:any,m:any)=>{if(!m)throw Error('Материал не найден');if(m.meetingId){const meeting=await db.meeting.findUnique({where:{id:m.meetingId}});if(!meeting||!(await meetingAccess(req.user.id,meeting)).allowed)throw Error('Нет доступа');}else if(m.ownerId!==req.user.id)await admin(req,m.organizationId);};
   const jsonFetch=cloudJsonFetch;
-  async function config(){return {useDeveloperKey:await setting('demo_use_developer_key')==='true',limit:Number(await setting('demo_ai_limit')||3),contact:await setting('developer_contact'),imageLimit:Number(await setting('demo_image_limit')||1),imageModel:await setting('report_image_model')||'gpt-image-2.5-sunburst',visionModel:await setting('vision_model')||'gpt-4.1-mini',maxBytes:Number(await setting('cloud_max_bytes')||536870912)};}
+  async function config(){return {useDeveloperKey:await setting('demo_use_developer_key')==='true',limit:Number(await setting('demo_meeting_limit')||0),contact:await setting('developer_contact'),imageLimit:Number(await setting('demo_image_limit')||1),imageModel:await setting('report_image_model')||'gpt-image-2.5-sunburst',visionModel:await setting('vision_model')||'gpt-4.1-mini',maxBytes:Number(await setting('cloud_max_bytes')||536870912)};}
   async function reserve(org:string,operationId:string,kind='analysis',meetingId?:string){
     const {key}=await c.meetingOpenAiKey(org);if(!key)throw Error('Ожидает ключа: добавьте OpenAI в админке. Пароль для демо-админки: 1234.');
     if(c.demoModeConfig&&await db.demoSpace.findUnique({where:{organizationId:org}})){const mode=await c.demoModeConfig();if(!mode.enabled||!mode.features.analysis)throw Error('AI-анализ выключен в демо-режиме');}
@@ -28,8 +29,6 @@ export function installMultimodal(c:any) {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${org}))`;
       const existing=await tx.aiOperation.findUnique({where:{id:operationId}});
       if(existing){if(existing.organizationId!==org)throw Error('Неверный ID операции');return;}
-      const space=await tx.demoSpace.findUnique({where:{organizationId:org}});
-      if(space){const changed=await tx.demoSpace.updateMany({where:{id:space.id,used:{lt:cfg.limit}},data:{used:{increment:1}}});if(!changed.count)throw Error('Лимит AI-обработок исчерпан. Свяжитесь с разработчиком.');}
       await tx.aiOperation.create({data:{id:operationId,organizationId:org,meetingId,kind}});
     });return key;
   }
@@ -73,14 +72,14 @@ export function installMultimodal(c:any) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.folderId}))`;
         const folder=await tx.cloudFolder.findUnique({where:{id:input.folderId}});
         meetingId=folder?.settings?.meetingId||undefined;
-        if(!meetingId){const membership=await member(input.ownerId,input.organizationId);const template=await tx.meetingTemplate.findFirst({where:{organizationId:input.organizationId}});const meeting=await tx.meeting.create({data:{organizationId:input.organizationId,departmentId:membership.departmentId||input.departmentId,creatorId:input.ownerId,templateId:template.id,title:folder.name,state:'DRAFT',sourceKind:'folder',materialKind:'collection'}});meetingId=meeting.id;await tx.cloudFolder.update({where:{id:folder.id},data:{settings:{...folder.settings,meetingId}}});}
+        if(!meetingId){const membership=await member(input.ownerId,input.organizationId);const template=await tx.meetingTemplate.findFirst({where:{organizationId:input.organizationId}});await assertDemoMeetingCapacity(tx,input.organizationId,(await config()).limit);const meeting=await tx.meeting.create({data:{organizationId:input.organizationId,departmentId:membership.departmentId||input.departmentId,creatorId:input.ownerId,templateId:template.id,title:folder.name,state:'DRAFT',sourceKind:'folder',materialKind:'collection'}});meetingId=meeting.id;await tx.cloudFolder.update({where:{id:folder.id},data:{settings:{...folder.settings,meetingId}}});}
       }
       const kind=input.kind||kindOf(input.name);if(!['video','audio','image','document'].includes(kind))throw Error('Формат файла не поддерживается.');
       if(!meetingId&&(['video','audio'].includes(kind)||input.rule==='meeting')){
         const m=await member(input.ownerId,input.organizationId);const departmentId=input.departmentId||m?.departmentId;
         const template=await tx.meetingTemplate.findFirst({where:{organizationId:input.organizationId,...(input.templateId?{id:input.templateId}:{})}});
         if(!departmentId||!template||!await tx.department.findFirst({where:{id:departmentId,organizationId:input.organizationId}}))throw Error('Выберите отдел и шаблон встречи своей организации.');
-        const meeting=await tx.meeting.create({data:{organizationId:input.organizationId,departmentId,creatorId:input.ownerId,templateId:template.id,title:input.title||input.name,notes:input.notes||null,state:'PROCESSING',processingStartedAt:new Date(),processingStage:'Получение файла',sourceKind:input.origin,materialKind:kind}});meetingId=meeting.id;
+        await assertDemoMeetingCapacity(tx,input.organizationId,(await config()).limit);const meeting=await tx.meeting.create({data:{organizationId:input.organizationId,departmentId,creatorId:input.ownerId,templateId:template.id,title:input.title||input.name,notes:input.notes||null,state:'PROCESSING',processingStartedAt:new Date(),processingStage:'Получение файла',sourceKind:input.origin,materialKind:kind}});meetingId=meeting.id;
         if(input.notes)await tx.transcript.create({data:{meetingId,text:input.notes,source:'notes'}});
         await tx.devSetting.create({data:{organizationId:input.organizationId,key:'report_illustrations:'+meetingId,value:String(input.illustrations!==false)}});
       }
@@ -166,6 +165,19 @@ export function installMultimodal(c:any) {
       if(material.meetingId)await db.meeting.update({where:{id:material.meetingId},data:{state:'FAILED',processingStage:status==='waiting_key'?'Ожидает ключа':'Ошибка',error}});
     }finally{clearInterval(heartbeat);}
   }
+  async function resumeMeetingMaterials(meetingId:string){
+    const resumed=await db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'resume-materials:'+meetingId}))`;
+      const jobs=await tx.processingJob.findMany({where:{material:{meetingId},status:{in:['waiting_key','waiting_limit','failed']}}});
+      if(!jobs.length)return false;
+      for(const job of jobs)await tx.processingJob.update({where:{id:job.id},data:{status:'queued',payload:{...job.payload,attempts:0},error:null,leaseUntil:null}});
+      await tx.material.updateMany({where:{id:{in:jobs.map(j=>j.materialId)}},data:{status:'queued',error:null}});
+      await tx.meeting.update({where:{id:meetingId},data:{state:'PROCESSING',error:null,processingStartedAt:new Date(),processingStage:'Ожидание обработки материалов'}});
+      return true;
+    });
+    if(resumed&&c.startWorker!==false)void tick();
+    return resumed;
+  }
   let ticking=false;
   async function tick(){if(ticking)return;ticking=true;try{
     const job=await db.$transaction(async(tx:any)=>{await tx.$executeRaw`SELECT pg_advisory_xact_lock(718261026)`;const j=await tx.processingJob.findFirst({where:{OR:[{status:'queued'},{status:'running',leaseUntil:{lt:new Date()}}]},orderBy:{createdAt:'asc'}});if(!j)return null;return tx.processingJob.update({where:{id:j.id},data:{status:'running',startedAt:j.startedAt||new Date(),leaseUntil:new Date(Date.now()+90000)}});});
@@ -207,7 +219,7 @@ export function installMultimodal(c:any) {
       await db.syncRun.update({where:{id:run.id},data:{status:'done',stats,events,completedAt:new Date()}});return {stats,events};
     }catch(e:any){await db.cloudFolder.update({where:{id:folder.id},data:{leaseUntil:null,error:e.message,status:/401|403|переподключ/.test(e.message)?'reconnect':'active',nextRunAt:nextRuns(folder.schedule)[0]??null}});await db.syncRun.update({where:{id:run.id},data:{status:'failed',events:[{status:e.message}],completedAt:new Date()}});throw e;}
   }
-  app.get('/ai/usage',auth,wrap(async(req:any,res:any)=>{const org=String(req.query.organizationId);if(!await member(req.user.id,org))throw Error('Нет доступа');const space=await db.demoSpace.findUnique({where:{organizationId:org}});const cfg=await config();const demoMembers=space?await db.membership.findMany({where:{organizationId:org,user:{email:{endsWith:'@demo.stenograf.local'}}},select:{user:{select:{id:true,email:true}},department:{select:{id:true,name:true}}}}):[];const demoDepartments=demoMembers.filter((m:any)=>/^client[12]\./.test(m.user.email)&&m.department).map((m:any)=>({role:m.user.email.split('.')[0],departmentId:m.department.id,name:m.department.name})).sort((a:any,b:any)=>a.role.localeCompare(b.role));const demoRole=demoMembers.find((m:any)=>m.user.id===req.user.id)?.user.email.split('.')[0]||'';const demoState=await c.demoModeConfig();const aiKey=await c.meetingOpenAiKey(org);res.json({demo:!!space&&demoState.enabled,platformKeyEnabled:demoState.enabled&&cfg.useDeveloperKey,platformKeyConfigured:!!(await setting('developer_openai_api_key')),demoDepartments,demoRole,remaining:space?Math.max(0,cfg.limit-space.used):null,contact:cfg.contact,hasKey:!!aiKey.key,keySource:aiKey.source});}));
+  app.get('/ai/usage',auth,wrap(async(req:any,res:any)=>{const org=String(req.query.organizationId);if(!await member(req.user.id,org))throw Error('Нет доступа');const space=await db.demoSpace.findUnique({where:{organizationId:org}});const cfg=await config();const demoMembers=space?await db.membership.findMany({where:{organizationId:org,user:{email:{endsWith:'@demo.stenograf.local'}}},select:{user:{select:{id:true,email:true}},department:{select:{id:true,name:true}}}}):[];const demoDepartments=demoMembers.filter((m:any)=>/^client[12]\./.test(m.user.email)&&m.department).map((m:any)=>({role:m.user.email.split('.')[0],departmentId:m.department.id,name:m.department.name})).sort((a:any,b:any)=>a.role.localeCompare(b.role));const demoRole=demoMembers.find((m:any)=>m.user.id===req.user.id)?.user.email.split('.')[0]||'';const demoState=await c.demoModeConfig();const meetingCount=space?await demoMeetingCount(db,org):0;const aiKey=await c.meetingOpenAiKey(org);res.json({demo:!!space&&demoState.enabled,platformKeyEnabled:demoState.enabled&&cfg.useDeveloperKey,platformKeyConfigured:!!(await setting('developer_openai_api_key')),demoDepartments,demoRole,meetingLimit:space?cfg.limit:null,meetingCount:space?meetingCount:null,remaining:space&&cfg.limit>0?Math.max(0,cfg.limit-meetingCount):null,contact:cfg.contact,hasKey:!!aiKey.key,keySource:aiKey.source});}));
   async function allowedMeeting(req:any,edit=false){const m=await db.meeting.findUnique({where:{id:req.params.id}});const access=m&&await meetingAccess(req.user.id,m);if(!access?.allowed||edit&&!access.editor)throw Error('Встреча не найдена');return m;}
   app.get('/meetings/:id/versions',auth,wrap(async(req:any,res:any)=>{await allowedMeeting(req);res.json(await db.analysisVersion.findMany({where:{meetingId:req.params.id},orderBy:{number:'desc'}}));}));
   app.get('/meetings/:id/versions/:versionId/chat',auth,wrap(async(req:any,res:any)=>{await allowedMeeting(req);const v=await db.analysisVersion.findFirst({where:{id:req.params.versionId,meetingId:req.params.id}});if(!v)throw Error('Версия не найдена');res.json(await db.meetingChatMessage.findMany({where:{meetingId:req.params.id,versionId:v.id},orderBy:{createdAt:'asc'}}));}));
@@ -302,7 +314,7 @@ export function installMultimodal(c:any) {
   app.delete('/cloud/folders/:id',auth,wrap(async(req:any,res:any)=>{const f=await db.cloudFolder.findUnique({where:{id:req.params.id}});if(!f)throw Error('Папка не найдена');await admin(req,f.organizationId);await db.cloudFolder.delete({where:{id:f.id}});res.json({ok:true});}));
   app.get('/developer/multimodal',protectedDev,wrap(async(req:any,res:any)=>{res.json({config:await config(),providers:await Promise.all(providers.map(async p=>({...p,clientId:await setting(`oauth_${p.id}_client_id`),secretSaved:!!await setting(`oauth_${p.id}_client_secret`),redirectUri:base()+`/cloud/oauth/${p.id}/callback`})))});}));
   app.post('/developer/multimodal/check-models',protectedDev,wrap(async(req:any,res:any)=>{const apiKey=await setting('developer_openai_api_key');if(!apiKey)throw Error('Сначала сохраните ключ разработчика');const cfg=await config();const {data}=await rawProviderGenerate({apiKey,model:cfg.visionModel,operation:'model_catalog',payload:{},timeoutSeconds:30});const ids=(data.data||[]).map((x:any)=>x.id);res.json({visionModel:cfg.visionModel,visionAvailable:ids.includes(cfg.visionModel),imageModel:cfg.imageModel,imageAvailable:ids.includes(cfg.imageModel)});}));
-  app.put('/developer/multimodal',protectedDev,wrap(async(req:any,res:any)=>{if(Object.prototype.hasOwnProperty.call(req.body,'demo_use_developer_key')&&!req.developerAccess?.canManageDemo)return res.status(403).json({error:'Использование ключа платформы настраивает только владелец после рабочего входа.'});const allowed=['demo_use_developer_key','demo_ai_limit','developer_contact','demo_image_limit','report_image_model','vision_model','cloud_max_bytes',...providers.flatMap(p=>[`oauth_${p.id}_client_id`,`oauth_${p.id}_client_secret`])];for(const [key,val]of Object.entries(req.body)){if(!allowed.includes(key)||typeof val!=='string')throw Error('Недопустимая настройка');if(['demo_ai_limit','demo_image_limit','cloud_max_bytes'].includes(key)&&(!/^\d+$/.test(val)||Number(val)>2147483647))throw Error('Укажите целое неотрицательное число');if(key==='report_image_model'&&!['gpt-image-2.5-sunburst','gpt-image-2.5-flare'].includes(val))throw Error('Недопустимая модель изображений');const value=key.endsWith('_secret')&&val?encrypt(val):val;await db.devSetting.upsert({where:{key},create:{key,value},update:{value}});}res.json({ok:true});}));
+  app.put('/developer/multimodal',protectedDev,wrap(async(req:any,res:any)=>{if(['demo_use_developer_key','demo_meeting_limit'].some(key=>Object.prototype.hasOwnProperty.call(req.body,key))&&!req.developerAccess?.canManageDemo)return res.status(403).json({error:'Использование ключа платформы настраивает только владелец после рабочего входа.'});const allowed=['demo_use_developer_key','demo_meeting_limit','demo_ai_limit','developer_contact','demo_image_limit','report_image_model','vision_model','cloud_max_bytes',...providers.flatMap(p=>[`oauth_${p.id}_client_id`,`oauth_${p.id}_client_secret`])];for(const [key,val]of Object.entries(req.body)){if(!allowed.includes(key)||typeof val!=='string')throw Error('Недопустимая настройка');if(['demo_meeting_limit','demo_ai_limit','demo_image_limit','cloud_max_bytes'].includes(key)&&(!/^\d+$/.test(val)||Number(val)>2147483647))throw Error('Укажите целое неотрицательное число');if(key==='report_image_model'&&!['gpt-image-2.5-sunburst','gpt-image-2.5-flare'].includes(val))throw Error('Недопустимая модель изображений');const value=key.endsWith('_secret')&&val?encrypt(val):val;await db.devSetting.upsert({where:{key},create:{key,value},update:{value}});}res.json({ok:true});}));
   if(c.startWorker!==false){fs.mkdir(root,{recursive:true}).then(()=>void tick()).catch(console.error);setInterval(()=>void tick().catch(e=>console.error('Material worker:',e.message)),5000).unref();}
   async function chat(req:any,res:any){
     if(typeof req.body.message!=='string'||!req.body.message.trim()||req.body.message.length>5000)return res.status(400).json({error:'Введите вопрос длиной до 5000 символов'});
@@ -364,5 +376,5 @@ export function installMultimodal(c:any) {
       res.status(202).json({...result,status:'processing'});void tick();
     }catch(e:any){if(req.file)await fs.unlink(req.file.path).catch(()=>{});res.status(400).json({error:e.message});}
   }
-  return {reserve,config,visual,root,chat,attachReportSources,autoIllustration,createIllustration,queue,acceptLegacyMedia,checkFolders};
+  return {resumeMeetingMaterials,reserve,config,visual,root,chat,attachReportSources,autoIllustration,createIllustration,queue,acceptLegacyMedia,checkFolders};
 }

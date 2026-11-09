@@ -16,7 +16,7 @@ export default function CloudStorageCheck({orgId,onViewMeetings}:{orgId:string;o
   {folders&&<p className="cloud-storage-check__count">Подключено папок: <strong>{folders.length}</strong> · активно: <strong>{activeFolders}</strong></p>}
   {folders?.length===0&&<p>Папки ещё не добавлены. Подключите хранилище и выберите папку в админке.</p>}
   {!!folders?.length&&activeFolders===0&&<p>Активных папок нет. Возобновите проверку папки или переподключите аккаунт в админке.</p>}
-  <p className="cloud-meta">Проверка наличия файлов не расходует AI-лимит. Распознавание и анализ найденных материалов учитываются по обычным правилам.{usage?.demo&&<> Осталось AI-обработок: <strong>{usage.remaining}</strong>.</>}</p>
+  <p className="cloud-meta">Проверка файлов и повторная обработка не расходуют лимит встреч. Новые встречи создаются в пределах настройки демо-режима.{usage?.demo&&<> Демо-встречи: <strong>{usage.meetingCount??0}{usage.meetingLimit>0?' из '+usage.meetingLimit:' · без ограничений'}</strong>.</>}</p>
   <div className="cloud-actions"><button type="button" className="primary" disabled={busy||!activeFolders} onClick={()=>void check()}><RefreshCw size={15} className={busy?'spin':''}/>{busy?'Проверяем облачные папки…':'Проверить сейчас'}</button><a href={adminUrl.href}>Настроить папки в админке <ArrowUpRight size={13}/></a></div>
   {busy&&<p role="status">Проверяем доступность и версии файлов. Найденные материалы попадут в серверную очередь обработки.</p>}
   {error&&<p role="alert" className="error">{error}</p>}

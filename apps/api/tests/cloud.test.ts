@@ -7,6 +7,7 @@ import path from 'node:path';
 import express from 'express';
 import {PrismaClient} from '@prisma/client';
 import {nextRuns,publicAddress,providerOf,kindOf} from '../src/cloud-core.js';
+import {assertDemoMeetingCapacity,demoMeetingCount} from '../src/demo-meetings.js';
 import {installMultimodal} from '../src/multimodal.js';
 
 test('provider and file checks reject arbitrary hosts and HTML',()=>{
@@ -27,7 +28,7 @@ test('manual schedule never schedules an automatic check',()=>{
  assert.deepEqual(nextRuns({mode:'manual'}),[]);
  assert.deepEqual(nextRuns({mode:'manual',minutes:1,days:[],times:[]},new Date('2026-11-05'),10),[]);
 });
-test('atomic browser quota, repeated operation, and both folder grouping modes',async()=>{
+test('AI stages are idempotent without spending meeting slots; both folder grouping modes',async()=>{
  const db=new PrismaClient();const tag=randomUUID();let org:any;const temp=await fs.mkdtemp(path.join(os.tmpdir(),'stenograf-unit-'));
  try{
   org=await db.organization.create({data:{slug:'test-'+tag,name:'Integration fixture'}});
@@ -39,10 +40,10 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   let providerCalls=0,failNext=false,validIllustration=false;const chatRequests:any[]=[];
   const service=installMultimodal({app:express(),db,startWorker:false,auth:()=>{},protectedDev:()=>{},member:async()=>({departmentId:dept.id}),meetingAccess:async()=>({allowed:true,editor:true}),setting:async(k:string)=>k==='demo_ai_limit'?'3':'',meetingOpenAiKey:async()=>({key:'test-key'}),uploadRoot:path.join(temp,'audio'),rawProviderGenerate:async(args:any)=>{providerCalls++;if(args.payload?.input?.some((x:any)=>x.role==='system'))chatRequests.push(args.payload);if(failNext){failNext=false;throw Error('Simulated provider outage');}if(args.operation==='image_generate')return {data:{data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9WQAAAAASUVORK5CYII='}]}};if(args.payload?.text?.format?.type==='json_object')return {data:{output_text:JSON.stringify({valid:validIllustration,unsupported:validIllustration?[]:['Неподтверждённый дополнительный этап']})}};return {data:{output_text:'Confirmed test answer'}};},responseText:(x:any)=>x.output_text});
   await service.reserve(org.id,tag+'same');await service.reserve(org.id,tag+'same');
-  assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,1);
+  assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,0);
   const attempts=await Promise.allSettled(Array.from({length:8},(_,i)=>service.reserve(org.id,tag+i)));
-  assert.equal(attempts.filter(x=>x.status==='fulfilled').length,2);
-  assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,3);
+  assert.equal(attempts.filter(x=>x.status==='fulfilled').length,8);
+  assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,0);
   const folder=await db.cloudFolder.create({data:{organizationId:org.id,ownerId:user.id,provider:'yandex',name:'Project',url:'https://disk.yandex.ru/d/test',providerFolderId:'/',settings:{grouping:'folder'},schedule:{mode:'interval',minutes:60}}});
   const input={organizationId:org.id,ownerId:user.id,folderId:folder.id,provider:'yandex',origin:'folder',grouping:'folder',rule:'meeting',version:'1'};
   const [a,b]=await Promise.all([service.queue({...input,id:'file-a',name:'a.mp4'}),service.queue({...input,id:'file-b',name:'b.png'})]);
@@ -52,6 +53,12 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   const one=await service.queue({...input,folderId:single.id,grouping:'file',id:'one',name:'one.mp4'});
   const two=await service.queue({...input,folderId:single.id,grouping:'file',id:'two',name:'two.png'});assert.notEqual(one.meetingId,two.meetingId);
   const changed=await service.queue({...input,folderId:single.id,grouping:'file',id:'one',name:'renamed.mp4',version:'2'});assert.equal(changed.meetingId,one.meetingId);assert.equal(changed.duplicate,false);
+  const stalled=await db.processingJob.findFirstOrThrow({where:{materialId:one.material.id}});
+  await db.processingJob.update({where:{id:stalled.id},data:{status:'waiting_limit',error:'Legacy AI limit',payload:{...stalled.payload,attempts:2}}});
+  await db.meeting.update({where:{id:one.meetingId},data:{state:'FAILED',error:'Legacy AI limit'}});
+  assert.equal(await service.resumeMeetingMaterials(one.meetingId),true);
+  const resumed=await db.processingJob.findUniqueOrThrow({where:{id:stalled.id}});assert.equal(resumed.status,'queued');assert.equal((resumed.payload as any).attempts,0);assert.equal(resumed.error,null);
+  assert.equal(await service.resumeMeetingMaterials(one.meetingId),false);
   const linkInput={organizationId:org.id,ownerId:user.id,provider:'yandex',origin:'link',rule:'meeting',id:'public-video',version:'1',name:'source.mp4',title:'Название из формы',notes:'Контекст встречи из формы',illustrations:false};
   const linked=await service.queue(linkInput);const linkedMeeting=await db.meeting.findUniqueOrThrow({where:{id:linked.meetingId},include:{transcript:true}});
   assert.equal(linkedMeeting.title,linkInput.title);assert.equal(linkedMeeting.notes,linkInput.notes);assert.equal(linkedMeeting.transcript?.text,linkInput.notes);
@@ -72,11 +79,11 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   const image=await service.createIllustration(await db.meeting.findUniqueOrThrow({where:{id:one.meetingId}}),nextVersion,tag+'image','Пояснить подтверждённые факты');
   assert.equal(image.included,false);assert.equal(image.needsReview,true);
   assert.match((await db.analysisVersion.findUniqueOrThrow({where:{id:nextVersion.id}})).illustrationError||'',/исключена из экспорта/);
-  assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,1);
+  assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,0);
   await assert.rejects(()=>service.createIllustration({id:one.meetingId,organizationId:org.id},nextVersion,tag+'image2','Повтор'),/предел иллюстраций/);
   const meeting=await db.meeting.findUniqueOrThrow({where:{id:one.meetingId}});
   await assert.rejects(()=>service.createIllustration(meeting,nextVersion,tag+'invalid-replace','Новый вариант','foreign-image'),/не найдена/);
-  assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,1);
+  assert.equal((await db.demoSpace.findUniqueOrThrow({where:{organizationId:org.id}})).used,0);
   await assert.rejects(()=>service.createIllustration(meeting,nextVersion,tag+'unsafe-replace','Новый вариант',image.id),/Предыдущее изображение сохранено/);
   assert.equal((await db.reportImage.findUniqueOrThrow({where:{id:image.id}})).localPath,image.localPath);
   await fs.access(image.localPath);
@@ -98,4 +105,18 @@ test('atomic browser quota, repeated operation, and both folder grouping modes',
   await db.$disconnect();
   await fs.rm(temp,{recursive:true,force:true});
  }
+});
+
+test('demo meeting capacity is atomic, excludes examples, releases deleted meetings and supports unlimited',async()=>{
+ const db=new PrismaClient(),tag=randomUUID();let org:any,user:any;
+ try{
+  org=await db.organization.create({data:{slug:'quota-'+tag,name:'Quota fixture'}});user=await db.user.create({data:{email:tag+'@example.invalid',name:'Fixture',passwordHash:'fixture'}});const department=await db.department.create({data:{organizationId:org.id,name:'Test'}});await db.demoSpace.create({data:{organizationId:org.id,browserHash:tag}});
+  const create=(title:string)=>({organizationId:org.id,departmentId:department.id,creatorId:user.id,title});
+  const sample=await db.meeting.create({data:{...create('План технической команды'),notes:'Учебный материал для отдельного подразделения.'}});await db.transcript.create({data:{meetingId:sample.id,text:'Обсуждаем архитектуру импорта. Требуется проверить доступность исходных материалов.',source:'notes'}});
+  assert.equal(await demoMeetingCount(db,org.id),0);
+  const results=await Promise.allSettled(Array.from({length:8},(_,i)=>db.$transaction(async tx=>{await assertDemoMeetingCapacity(tx,org.id,3);return tx.meeting.create({data:create('Meeting '+i)});})));
+  const successes=results.filter(x=>x.status==='fulfilled');assert.equal(successes.length,3);assert.equal(await demoMeetingCount(db,org.id),3);for(const item of results.filter(x=>x.status==='rejected'))assert.equal((item as any).reason.status,429);
+  await db.meeting.delete({where:{id:(successes[0] as any).value.id}});await db.$transaction(async tx=>{await assertDemoMeetingCapacity(tx,org.id,3);await tx.meeting.create({data:create('Replacement')});});assert.equal(await demoMeetingCount(db,org.id),3);
+  await db.$transaction(async tx=>{await assertDemoMeetingCapacity(tx,org.id,0);await tx.meeting.create({data:create('Unlimited')});});assert.equal(await demoMeetingCount(db,org.id),4);
+ }finally{if(org)await db.organization.delete({where:{id:org.id}});if(user)await db.user.delete({where:{id:user.id}});await db.$disconnect();}
 });

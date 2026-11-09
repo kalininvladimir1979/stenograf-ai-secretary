@@ -1,4 +1,5 @@
 // @ts-nocheck
+import {assertDemoMeetingCapacity} from './demo-meetings.js';
 import "dotenv/config";
 import {publicationStatus} from "./publication-status.js";
 import {releaseMode,prepareMaintenance,finishMaintenance,type ReleaseMode} from "./release-maintenance.js";
@@ -205,9 +206,10 @@ const demoDefaults = {
   analysis: true,
   chat: true,
 };
-type DemoConfig = { enabled: boolean; features: typeof demoDefaults };
+type DemoConfig = { enabled: boolean; features: typeof demoDefaults; calendarView: "month"|"week"|"day"|"agenda" };
 const demoConfigSchema = z.object({
   enabled: z.boolean(),
+  calendarView: z.enum(["month","week","day","agenda"]).default("month"),
   features: z.object(Object.fromEntries(Object.keys(demoDefaults).map((key) => [key, z.boolean()])) as { [K in keyof typeof demoDefaults]: z.ZodBoolean }),
 });
 const demoEmail = "demo@stenograf.local";
@@ -216,11 +218,11 @@ async function demoModeConfig(): Promise<DemoConfig> {
   if (saved?.value) {
     try {
       const parsed = JSON.parse(saved.value);
-      return { enabled: parsed.enabled === true, features: { ...demoDefaults, ...parsed.features } };
+      return { calendarView:["month","week","day","agenda"].includes(parsed.calendarView)?parsed.calendarView:"month", enabled: parsed.enabled === true, features: { ...demoDefaults, ...parsed.features } };
     } catch { /* Keep the legacy setting usable until configuration is saved. */ }
   }
   const legacy = await db.devSetting.findUnique({ where: { key: demoModeSettingKey } });
-  return { enabled: legacy?.value === "true", features: { ...demoDefaults } };
+  return {calendarView:"month", enabled: legacy?.value === "true", features: { ...demoDefaults } };
 }
 async function demoModeEnabled() {
   return (await demoModeConfig()).enabled;
@@ -1150,7 +1152,10 @@ app.post("/meetings", auth, async (req: Authed, res) => {
           "Достигнут лимит встреч для организации. Обратитесь к администратору платформы.",
       });
   }
-  const meeting = await db.meeting.create({
+  let meeting;
+  try { meeting = await db.$transaction(async tx=>{
+    await assertDemoMeetingCapacity(tx,p.organizationId,Number(await setting('demo_meeting_limit')||0));
+    return tx.meeting.create({
     data: {
       ...p,
       creatorId: req.user!.id,
@@ -1159,6 +1164,7 @@ app.post("/meetings", auth, async (req: Authed, res) => {
       processingStartedAt: p.notes && req.body.deferAnalysis!==true ? new Date() : null,
     },
   });
+  }); } catch(e:any){if(e.status===429)return res.status(429).json({error:e.message});throw e;}
   await db.devSetting.create({data:{organizationId:p.organizationId,key:'report_illustrations:'+meeting.id,value:String(req.body.illustrations!==false)}});
   if (p.notes) {
     try {
@@ -1278,6 +1284,7 @@ app.post("/meetings/:id/retry", auth, async (req: Authed, res) => {
       return res.status(404).json({ error: "Встреча не найдена" });
     if (meeting.state === MeetingState.PROCESSING)
       return res.status(409).json({ error: "Материалы уже обрабатываются." });
+    if(await multimodal.resumeMeetingMaterials(meeting.id))return res.status(202).json({meetingId:meeting.id,status:'processing'});
     if (!meeting.transcript?.text?.trim() && !meeting.transcript?.audioPath)
       return res.status(409).json({ error: "Исходный файл не сохранился. Загрузите аудио или видео заново во вкладке «Материалы»." });
     const needsTranscription = ["audio", "video"].includes(meeting.transcript?.source || "") && !meeting.transcript?.text?.trim();
@@ -2359,14 +2366,14 @@ app.get("/developer/demo-mode", protectedDev, async (_req, res) => {
   res.json(await demoModeConfig());
 });
 app.put("/developer/demo-mode", protectedDev, protectedDemoManagement, async (req, res) => {
-  const { enabled, features } = demoConfigSchema.parse(req.body);
+  const { enabled, features, calendarView } = demoConfigSchema.parse(req.body);
   if (enabled) await ensureDemoWorkspace();
   await db.$transaction([
-    db.devSetting.upsert({ where: { key: demoConfigSettingKey }, update: { value: JSON.stringify({ enabled, features }) }, create: { key: demoConfigSettingKey, value: JSON.stringify({ enabled, features }) } }),
+    db.devSetting.upsert({ where: { key: demoConfigSettingKey }, update: { value: JSON.stringify({ enabled, features, calendarView }) }, create: { key: demoConfigSettingKey, value: JSON.stringify({ enabled, features, calendarView }) } }),
     db.devSetting.upsert({ where: { key: demoModeSettingKey }, update: { value: String(enabled) }, create: { key: demoModeSettingKey, value: String(enabled) } }),
   ]);
   await audit(undefined, undefined, enabled ? "demo_mode.enabled" : "demo_mode.disabled", "DemoMode");
-  res.json({ enabled, features });
+  res.json({ enabled, features, calendarView });
 });
 app.get("/developer/settings", protectedDev, async (_, res) => {
   const visibleKeys = ["developer_openai_api_key", "analysis_model", "whisper_model", "system_prompt"];

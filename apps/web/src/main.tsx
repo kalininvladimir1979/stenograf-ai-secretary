@@ -1860,11 +1860,11 @@ function Invite({
   );
 }
 
-function Tasks({ org, calendar = false, tourPreview = false }: { org: Org; calendar?: boolean; tourPreview?: boolean }) {
-  return tourPreview ? <TourTasksPreview org={org} calendar={calendar} /> : <TasksLive org={org} calendar={calendar} />;
+function Tasks({ org, calendar = false, tourPreview = false, defaultCalendarView="month" }: { org: Org; calendar?: boolean; tourPreview?: boolean; defaultCalendarView?:CalendarView }) {
+  return tourPreview ? <TourTasksPreview org={org} calendar={calendar} /> : <TasksLive org={org} calendar={calendar} defaultCalendarView={defaultCalendarView} />;
 }
 
-function TasksLive({ org, calendar = false }: { org: Org; calendar?: boolean }) {
+function TasksLive({ org, calendar = false, defaultCalendarView="month" }: { org: Org; calendar?: boolean; defaultCalendarView?:CalendarView }) {
   const [tasks, setTasks] = useState<any[]>([]),
     [filter, setFilter] = useState({ department: "", assignee: "", status: "", overdue: false });
   const [draggedTask, setDraggedTask] = useState<any | null>(null);
@@ -1872,7 +1872,7 @@ function TasksLive({ org, calendar = false }: { org: Org; calendar?: boolean }) 
   const [moveError, setMoveError] = useState("");
   const [people, setPeople] = useState<any[]>([]);
   const [editingTask, setEditingTask] = useState<any | null>(null);
-  const [calendarView, setCalendarView] = useState<CalendarView>("agenda");
+  const [calendarView, setCalendarView] = useState<CalendarView>(defaultCalendarView);
   const [calendarSort, setCalendarSort] = useState<CalendarSort>("due-asc");
   const [calendarAnchor, setCalendarAnchor] = useState(() => new Date());
   const loadTasks = () => api<any[]>(`/tasks?organizationId=${org.id}${calendar ? "&calendar=1" : ""}`).then(setTasks);
@@ -1882,9 +1882,11 @@ function TasksLive({ org, calendar = false }: { org: Org; calendar?: boolean }) 
     if (!calendar) return;
     const savedView = localStorage.getItem(`secretary-calendar-view:${org.id}`) as CalendarView | null;
     const savedSort = localStorage.getItem(`secretary-calendar-sort:${org.id}`) as CalendarSort | null;
-    setCalendarView(calendarViewOptions.some((option) => option.value === savedView) ? savedView! : "agenda");
+    const previousDefault=localStorage.getItem(`secretary-calendar-default:${org.id}`);
+    setCalendarView(previousDefault===defaultCalendarView&&calendarViewOptions.some(option=>option.value===savedView)?savedView!:defaultCalendarView);
+    localStorage.setItem(`secretary-calendar-default:${org.id}`,defaultCalendarView);
     setCalendarSort(["due-asc", "due-desc", "title", "status"].includes(savedSort || "") ? savedSort! : "due-asc");
-  }, [calendar, org.id]);
+  }, [calendar, org.id, defaultCalendarView]);
   const canMove = (task: any, targetStatusId: string) => {
     if (task.statusId === targetStatusId) return true;
     const current = org.taskStatuses.find((status) => status.id === task.statusId);
@@ -3739,7 +3741,7 @@ function ApiTester() {
 }
 
 type DemoFeatures = { publicAccess: boolean; adminAccess: boolean; fullAccess: boolean; meetings: boolean; tasks: boolean; calendar: boolean; notifications: boolean; analysis: boolean; chat: boolean };
-type DemoConfig = { enabled: boolean; features: DemoFeatures };
+type DemoConfig = { enabled: boolean; features: DemoFeatures; calendarView?:CalendarView };
 const defaultDemoFeatures: DemoFeatures = { publicAccess: true, adminAccess: true, fullAccess: true, meetings: true, tasks: true, calendar: true, notifications: true, analysis: true, chat: true };
 const demoFeatureLabels: { key: keyof DemoFeatures; label: string; hint: string }[] = [
   { key: "publicAccess", label: "Главная страница без входа", hint: "Посетитель сразу попадает в отдельное демо-пространство." },
@@ -3753,11 +3755,15 @@ const demoFeatureLabels: { key: keyof DemoFeatures; label: string; hint: string 
   { key: "chat", label: "Диалог по встрече", hint: "Вопросы к материалам встречи." },
 ];
 function DeveloperSecurity({ demoMode, onDemoModeChange }: { demoMode: boolean; onDemoModeChange: (enabled: boolean) => void }) {
+  const [meetingLimit,setMeetingLimit]=useState<string|null>(null);
+  const [savingMeetingLimit,setSavingMeetingLimit]=useState(false);
+  const [meetingLimitMessage,setMeetingLimitMessage]=useState('');
+  const saveMeetingLimit=async()=>{if(meetingLimit===null)return;setSavingMeetingLimit(true);setMeetingLimitMessage('');try{await dev('/developer/multimodal',{method:'PUT',body:JSON.stringify({demo_meeting_limit:meetingLimit})});setMeetingLimitMessage('Количество встреч сохранено.');}catch(e){setMeetingLimitMessage(e instanceof Error?e.message:'Не удалось сохранить.');}finally{setSavingMeetingLimit(false);}};
   const [platformKeyEnabled, setPlatformKeyEnabled] = useState<boolean | null>(null);
   const [savingPlatformKey, setSavingPlatformKey] = useState(false);
   const [platformKeyError, setPlatformKeyError] = useState("");
   useEffect(() => {
-    dev<any>("/developer/multimodal").then((data) => setPlatformKeyEnabled(data.config.useDeveloperKey))
+    dev<any>("/developer/multimodal").then((data) => {setPlatformKeyEnabled(data.config.useDeveloperKey);setMeetingLimit(String(data.config.limit));})
       .catch(() => setPlatformKeyError("Не удалось загрузить настройку ключа платформы. Обновите страницу."));
   }, []);
   const togglePlatformKey = async () => {
@@ -3836,7 +3842,8 @@ function DeveloperSecurity({ demoMode, onDemoModeChange }: { demoMode: boolean; 
       <div className="demo-mode"><div><h3>{savedDemoConfig?.enabled ? "Демо-режим включён" : "Демо-режим выключен"}</h3><p>{changingDemoMode ? "Сохраняем настройку на сервере…" : "При выключении действует обычный вход."}</p></div><button type="button" className={`demo-mode__switch ${demoConfig.enabled ? "is-on" : ""}`} role="switch" aria-checked={demoConfig.enabled} aria-label="Демо-режим" disabled={changingDemoMode || !savedDemoConfig} onClick={() => { const next = { ...demoConfig, enabled: !demoConfig.enabled }; void saveDemoMode(next); }}><span aria-hidden="true" /></button></div>
       <div className="demo-mode"><div><h3>Использовать ключ платформы</h3><p>В демо используется ключ OpenAI из раздела «Секреты API» этой консоли. Когда выключено — ключ из админки демо-пространства.</p>{savingPlatformKey && <p role="status">Сохраняем…</p>}</div><button type="button" className={`demo-mode__switch ${platformKeyEnabled ? "is-on" : ""}`} role="switch" aria-checked={platformKeyEnabled === true} aria-label="Использовать ключ платформы" disabled={savingPlatformKey || platformKeyEnabled === null || !savedDemoConfig} onClick={() => void togglePlatformKey()}><span aria-hidden="true" /></button></div>
       {platformKeyError && <p className="error" role="alert">{platformKeyError}</p>}
-      <div className="demo-feature-list">{demoFeatureLabels.map(({ key, label, hint }) => <div className="demo-mode" key={key}><div><h3>{label}</h3><p>{hint}</p></div><button type="button" className={`demo-mode__switch ${demoConfig.features[key] ? "is-on" : ""}`} role="switch" aria-checked={demoConfig.features[key]} aria-label={label} disabled={changingDemoMode || !savedDemoConfig} onClick={() => { const next = { ...demoConfig, features: { ...demoConfig.features, [key]: !demoConfig.features[key] } }; void saveDemoMode(next); }}><span aria-hidden="true" /></button></div>)}</div>
+      <div className="demo-mode"><div><h3>Количество встреч в демо-режиме</h3><p>Лимит добавленных встреч на демо-пространство браузера. Учебные примеры не учитываются; удаление встречи освобождает место. Расшифровка, иллюстрации и повторный анализ не расходуют дополнительные встречи. 0 — без ограничений.</p><label>Количество встреч<input type="number" min="0" max="2147483647" step="1" value={meetingLimit??''} disabled={meetingLimit===null||savingMeetingLimit} onChange={e=>{setMeetingLimit(e.target.value);setMeetingLimitMessage('');}}/></label><button type="button" className="outline" disabled={meetingLimit===null||savingMeetingLimit||!/^\d+$/.test(meetingLimit)} onClick={()=>void saveMeetingLimit()}>{savingMeetingLimit?'Сохраняем…':'Сохранить количество'}</button>{meetingLimitMessage&&<p role="status">{meetingLimitMessage}</p>}</div></div>
+      <div className="demo-feature-list">{demoFeatureLabels.map(({ key, label, hint }) => <div className="demo-mode" key={key}><div><h3>{label}</h3><p>{key==='fullAccess'?'Без продуктовых ограничений. Лимит добавленных демо-встреч задаётся отдельно выше.':hint}</p>{key==='calendar'&&<div className="demo-calendar-default"><span>Схема по умолчанию</span><div className="collection-view-toggle" role="group" aria-label="Схема календаря по умолчанию">{calendarViewOptions.map(option=><button type="button" key={option.value} aria-pressed={(demoConfig.calendarView||'month')===option.value} className={(demoConfig.calendarView||'month')===option.value?'active':''} disabled={changingDemoMode||!savedDemoConfig} onClick={()=>void saveDemoMode({...demoConfig,calendarView:option.value})}>{option.label}</button>)}</div></div>}</div><button type="button" className={`demo-mode__switch ${demoConfig.features[key] ? "is-on" : ""}`} role="switch" aria-checked={demoConfig.features[key]} aria-label={label} disabled={changingDemoMode || !savedDemoConfig} onClick={() => { const next = { ...demoConfig, features: { ...demoConfig.features, [key]: !demoConfig.features[key] } }; void saveDemoMode(next); }}><span aria-hidden="true" /></button></div>)}</div>
       <div className="demo-settings__actions"><button type="button" className="primary" disabled={(!demoChanged && !pendingDemoConfig) || changingDemoMode} onClick={() => void saveDemoMode(pendingDemoConfig ?? demoConfig)}>{changingDemoMode ? "Сохраняем…" : "Повторить сохранение"}</button><span>{pendingDemoConfig ? "Изменение не сохранено на сервере" : demoChanged ? "Настройка ещё не сохранена" : "Настройки сохранены на сервере"}</span></div>
       {demoModeError && <p className="error" role="alert">{demoModeError}</p>}
       {needsDemoAuth && <form className="demo-mode__auth" onSubmit={(event) => { event.preventDefault(); if (demoAuthPassword) void saveDemoMode(pendingDemoConfig ?? demoConfig, demoAuthPassword); }}>{passwordField("demoAuth", "Действующий пароль Dev-консоли", demoAuthPassword, setDemoAuthPassword, "current-password")}<button type="submit" className="outline" disabled={changingDemoMode || !demoAuthPassword}>Подтвердить сохранение</button></form>}
@@ -4512,7 +4519,7 @@ function App() {
   ) : view === "tasks" ? (
     <Tasks org={org} tourPreview={workspaceTourStep === 7 || workspaceTourStep === 8} />
   ) : view === "calendar" ? (
-    <Tasks org={org} calendar tourPreview={workspaceTourStep === 9 || workspaceTourStep === 10} />
+    <Tasks org={org} calendar defaultCalendarView={user.email.endsWith('@demo.stenograf.local')?(demoConfig.calendarView||'month'):'month'} tourPreview={workspaceTourStep === 9 || workspaceTourStep === 10} />
   ) : view === "notifications" ? (
     <Notifications tourPreview={workspaceTourStep === 11} />
   ) : view === "admin" ? (
