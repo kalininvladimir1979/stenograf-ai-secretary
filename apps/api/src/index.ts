@@ -785,7 +785,7 @@ app.post("/auth/register", async (req, res) => {
   const p = z
     .object({
       name: z.string().min(2),
-      email: z.string().email(),
+      email: z.string().trim().email(),
       password: z.string().min(4),
       organizationName: z.string().min(2),
     })
@@ -861,7 +861,7 @@ app.post("/auth/register", async (req, res) => {
 });
 app.post("/auth/login", async (req, res) => {
   const p = z
-    .object({ email: z.string().email(), password: z.string() })
+    .object({ email: z.string().trim().email(), password: z.string() })
     .parse(req.body);
   const u = await db.user.findUnique({
     where: { email: p.email.toLowerCase() },

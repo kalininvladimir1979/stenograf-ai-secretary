@@ -242,10 +242,22 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    // Browser/password-manager autofill may not emit React's change event.
+    // Read the actual controls when submitting; never trim the password.
+    const submitted = new FormData(e.currentTarget as HTMLFormElement);
+    const credentials = {
+      ...form,
+      email: String(submitted.get("email") ?? "").trim(),
+      password: String(submitted.get("password") ?? ""),
+      ...(mode === "register" ? {
+        name: String(submitted.get("name") ?? ""),
+        organizationName: String(submitted.get("organizationName") ?? ""),
+      } : {}),
+    };
     try {
       const r = await api<{ token: string }>(`/auth/${mode}`, {
         method: "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify(credentials),
       });
       localStorage.setItem("secretary-token", r.token);
       const url=new URL(location.href);url.searchParams.delete("login");history.replaceState(null,"",url);
@@ -274,6 +286,8 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
             Email
             <input
               type="email"
+              name="email"
+              required
               autoComplete="username"
               value={form.email}
               onChange={(e) => {
@@ -287,6 +301,8 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
             <span className="login-password-input">
               <input
                 type={passwordVisible ? "text" : "password"}
+                name="password"
+                required
                 value={form.password}
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
                 onChange={(e) => {
@@ -317,6 +333,7 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
               <label>
                 Ваше имя
                 <input
+                  name="name"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                 />
@@ -324,6 +341,7 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
               <label>
                 Организация
                 <input
+                  name="organizationName"
                   value={form.organizationName}
                   onChange={(e) =>
                     setForm({ ...form, organizationName: e.target.value })
