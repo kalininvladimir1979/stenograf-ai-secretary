@@ -1,5 +1,6 @@
 // @ts-nocheck
 import "dotenv/config";
+import {publicationStatus} from "./publication-status.js";
 import {installInstructions} from "./instructions.js";
 import express, {
   type Request,
@@ -2817,12 +2818,19 @@ app.get("/developer/publication/profiles", protectedDev, async (_, res) => {
   res.json(profiles.map(publicationView));
 });
 app.get("/developer/publication/profiles/:id/status", protectedDev, async (req, res) => {
-  const profile = await db.publicationProfile.findUnique({ where: { id: req.params.id } });
-  if (!profile) return res.status(404).json({ error: "Профиль публикации не найден" });
-  const [local, release] = await Promise.all([localReleaseSnapshot(), readReleaseState(profile.id)]);
-  const server = release?.server || null;
-  res.json({ local, server, release, comparison: server ? (server.hash === local.hash ? "synchronized" : "changed") : "unknown", note: server ? (server.hash === local.hash ? "VPS содержит текущий снимок выпуска." : "Локальный состав изменился после последнего выпуска.") : "Серверный снимок появится после первого подтверждённого выпуска." });
+  try {
+    const profile = await db.publicationProfile.findUnique({ where: { id: req.params.id } });
+    if (!profile) return res.status(404).json({ error: "Профиль публикации не найден" });
+    res.json(await publicationStatus(profile.id, {
+      serverReadOnly: process.env.NODE_ENV === "production" && await demoModeEnabled(),
+      readRelease: readReleaseState,
+      readLocal: localReleaseSnapshot,
+    }));
+  } catch (error) {
+    res.status(503).json({ error: "Не удалось прочитать статус публикации. Профиль сохранён; повторите запрос из локальной Dev-консоли." });
+  }
 });
+
 app.post("/developer/publication/profiles", protectedDev, protectedPublicationWrite, async (req, res) => {
   const input = publicationProfileSchema.parse(req.body);
   const { secret, clearSecret: _clearSecret, ...profileData } = input;

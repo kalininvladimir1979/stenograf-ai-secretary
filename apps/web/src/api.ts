@@ -93,6 +93,6 @@ export async function dev<T>(path: string, init: RequestInit = {}, passwordOverr
     throw new Error("Dev API временно недоступен. Повторите попытку.");
   }
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || "Ошибка");
+  if (!r.ok) throw new Error(d.error || (r.status >= 500 ? `Dev API временно недоступен (HTTP ${r.status}). Повторите попытку.` : `Запрос Dev API отклонён (HTTP ${r.status}).`));
   return d as T;
 }
