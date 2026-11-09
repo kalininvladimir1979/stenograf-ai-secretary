@@ -2539,7 +2539,7 @@ main {
 .secure-gate__demo-heading b { padding: 4px 10px; border-radius: 5px; background: var(--panel); color: var(--wine); font: 500 16px/1.4 "DM Mono", monospace; letter-spacing: .12em; }
 .secure-gate__demo-note p { margin: 10px 0 0; font-size: 12px; line-height: 1.65; color: var(--muted); }
 .secure-gate--developer .secure-gate__field input { min-height: 50px; }
-.secure-gate--developer .secure-gate__submit { min-height: 50px; margin-top: 16px; border-radius: 8px; }
+.secure-gate--developer .secure-gate__submit { min-height: 50px; margin-top: 16px; border-radius: 8px; color: var(--panel); }
 .secure-gate--developer .secure-gate__password-action { width: 36px; height: 40px; right: 6px; }
 .secure-gate--developer .secure-gate__password-action--clear { right: 42px; }
 .secure-gate--developer .secure-gate__field input { padding-right: 86px; }
