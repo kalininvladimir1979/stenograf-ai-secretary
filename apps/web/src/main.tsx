@@ -3429,7 +3429,7 @@ function Dev({ onBack }: { onBack: () => void }) {
         {modelError && <p className="error">{modelError}</p>}
         {confirmWorkspaceSignIn && <WorkspaceSignInDialog onCancel={() => setConfirmWorkspaceSignIn(false)} onConfirm={() => {
           sessionStorage.removeItem("secretary-dev-password");
-          window.location.assign(workspaceUrl(true));
+          window.location.assign(developerOwnerLoginUrl());
         }}/>}
       </section>
       <nav className="tabs">
