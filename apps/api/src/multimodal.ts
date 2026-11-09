@@ -3,12 +3,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash,randomUUID,randomBytes} from 'node:crypto';
 import multer from 'multer';
+import {cloudJsonFetch,yandexPublicFile} from './cloud-http.js';
 import {providers,providerOf,downloadFile,safeResponse,kindOf,nextRuns,validateSchedule} from './cloud-core.js';
 
 export function installMultimodal(c:any) {
   const {app,db,auth,protectedDev,member,meetingAccess,setting,encryptPublicationSecret:encrypt,decryptPublicationSecret:decrypt,execFileAsync,uploadRoot,transcribeLongAudio,prepareVideoAudio,processMeeting,rawProviderGenerate,responseText}=c;
   const root=path.resolve(uploadRoot,'../materials');
-  const wrap=(f:any)=>(req:any,res:any,next:any)=>Promise.resolve(f(req,res,next)).catch((e:any)=>res.status(/доступ|не найден/i.test(e.message)?403:400).json({error:e.message||'Не удалось выполнить действие'}));
+  const wrap=(f:any)=>(req:any,res:any,next:any)=>Promise.resolve(f(req,res,next)).catch((e:any)=>res.status(e.status===429?429:/доступ|не найден/i.test(e.message)?403:400).json({error:e.message||'Не удалось выполнить действие'}));
   const sha=(x:any)=>createHash('sha256').update(x).digest('hex');
   const googleExports:any={'application/vnd.google-apps.document':{extension:'.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},'application/vnd.google-apps.spreadsheet':{extension:'.xlsx',mime:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'},'application/vnd.google-apps.presentation':{extension:'.pptx',mime:'application/vnd.openxmlformats-officedocument.presentationml.presentation'}};
   const publicMaterial=(m:any)=>({...m,localPath:undefined});
@@ -17,7 +18,7 @@ export function installMultimodal(c:any) {
   const provider=(id:string)=>{const p=providers.find(x=>x.id===id);if(!p)throw Error('Неизвестное облако');return p;};
   const admin=async(req:any,org:string)=>{const m=await member(req.user.id,org);if(!m||!['OWNER','ADMIN'].includes(m.role))throw Error('Нет доступа к настройкам организации');return m;};
   const accessible=async(req:any,m:any)=>{if(!m)throw Error('Материал не найден');if(m.meetingId){const meeting=await db.meeting.findUnique({where:{id:m.meetingId}});if(!meeting||!(await meetingAccess(req.user.id,meeting)).allowed)throw Error('Нет доступа');}else if(m.ownerId!==req.user.id)await admin(req,m.organizationId);};
-  const jsonFetch=async(url:string,init:any={})=>{const r=await fetch(url,{...init,signal:AbortSignal.timeout(30000)});const d=await r.json();if(!r.ok)throw Error(`Облако отклонило запрос (HTTP ${r.status}). Требуется переподключение или ручная загрузка.`);return d;};
+  const jsonFetch=cloudJsonFetch;
   async function config(){return {useDeveloperKey:await setting('demo_use_developer_key')==='true',limit:Number(await setting('demo_ai_limit')||3),contact:await setting('developer_contact'),imageLimit:Number(await setting('demo_image_limit')||1),imageModel:await setting('report_image_model')||'gpt-image-2.5-sunburst',visionModel:await setting('vision_model')||'gpt-4.1-mini',maxBytes:Number(await setting('cloud_max_bytes')||536870912)};}
   async function reserve(org:string,operationId:string,kind='analysis',meetingId?:string){
     const {key}=await c.meetingOpenAiKey(org);if(!key)throw Error('Ожидает ключа: добавьте OpenAI в админке. Пароль для демо-админки: 1234.');
@@ -45,11 +46,8 @@ export function installMultimodal(c:any) {
     const account=accountId?await db.cloudAccount.findFirst({where:{id:accountId,organizationId:org,provider:p,status:'connected'}}):await db.cloudAccount.findFirst({where:{organizationId:org,provider:p,status:'connected'}});
     const access=account?await tokenFor(account):null;
     if(p==='yandex'){
-      if(access&&u.pathname.startsWith('/client/disk')){const filePath='disk:'+decodeURIComponent(u.pathname.slice('/client/disk'.length));const headers={Authorization:`OAuth ${access}`};const d=await jsonFetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodeURIComponent(filePath)}`,{headers});if(d.type!=='file')throw Error('Укажите ссылку на конкретный файл');const link=await jsonFetch(`https://cloud-api.yandex.net/v1/disk/resources/download?path=${encodeURIComponent(filePath)}`,{headers});return {provider:p,id:d.resource_id||d.path,version:d.md5||d.modified+':'+d.size,name:d.name,url:link.href,normalizedUrl:u.href};}
-      const data=await jsonFetch(`https://cloud-api.yandex.net/v1/disk/public/resources?public_key=${encodeURIComponent(u.href)}`);
-      if(data.type!=='file')throw Error('Это ссылка на папку. Для импорта укажите конкретный видеофайл.');
-      const download=await jsonFetch(`https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${encodeURIComponent(u.href)}`);
-      return {provider:p,id:data.resource_id||data.public_key||u.href,version:data.md5||data.modified+':'+data.size,name:data.name,url:download.href,normalizedUrl:u.href};
+      if(access&&u.pathname.startsWith('/client/disk')){const filePath='disk:'+decodeURIComponent(u.pathname.slice('/client/disk'.length));const headers={Authorization:`OAuth ${access}`};const d=await jsonFetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodeURIComponent(filePath)}`,{headers});if(d.type!=='file')throw Error('Укажите ссылку на конкретный файл');const link=d.file?{href:d.file}:await jsonFetch(`https://cloud-api.yandex.net/v1/disk/resources/download?path=${encodeURIComponent(filePath)}`,{headers});return {provider:p,id:d.resource_id||d.path,version:d.md5||d.modified+':'+d.size,name:d.name,url:link.href,normalizedUrl:u.href};}
+      return yandexPublicFile(u.href,jsonFetch);
     }
     if(p==='google'){
       const id=u.pathname.match(/\/d\/([^/]+)/)?.[1]||u.searchParams.get('id');if(!id)throw Error('Не удалось определить файл Google Диска.');
@@ -113,7 +111,7 @@ export function installMultimodal(c:any) {
         await fs.unlink(file).catch(()=>{});
         let metadata:any;
         if(input.folderId){const folder=await db.cloudFolder.findUniqueOrThrow({where:{id:input.folderId}});const source=(await list(folder)).find((x:any)=>x.id===input.id);if(!source)throw Error('Файл больше недоступен в облачной папке');const account=folder.accountId?await db.cloudAccount.findUnique({where:{id:folder.accountId}}):null;const access=account?await tokenFor(account):null;let url=source.download;let authToken:string|undefined;
-          if(folder.provider==='yandex'){const link=await jsonFetch(access?`https://cloud-api.yandex.net/v1/disk/resources/download?path=${encodeURIComponent(source.path)}`:`https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${encodeURIComponent(folder.url)}&path=${encodeURIComponent(source.path)}`,{headers:access?{Authorization:`OAuth ${access}`}:{}});url=link.href;}
+          if(folder.provider==='yandex'&&!url){const link=await jsonFetch(access?`https://cloud-api.yandex.net/v1/disk/resources/download?path=${encodeURIComponent(source.path)}`:`https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${encodeURIComponent(folder.url)}&path=${encodeURIComponent(source.path)}`,{headers:access?{Authorization:`OAuth ${access}`}:{}});url=link.href;}
           if(folder.provider==='google'){url=source.exportMime?`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(source.id)}/export?mimeType=${encodeURIComponent(source.exportMime)}`:`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(source.id)}?alt=media`;authToken=access;}
           if(folder.provider==='dropbox'){const link=await jsonFetch('https://api.dropboxapi.com/2/files/get_temporary_link',{method:'POST',headers:{Authorization:`Bearer ${access}`,'Content-Type':'application/json'},body:JSON.stringify({path:source.path||source.id})});url=link.link;}
           if(folder.provider==='box'){url=`https://api.box.com/2.0/files/${encodeURIComponent(source.id)}/content`;authToken=access;}
@@ -163,7 +161,7 @@ export function installMultimodal(c:any) {
     }catch(e:any){
       const error=/password|encrypted/i.test(e.stderr||'')?'Файл защищён паролем. Загрузите доступную копию.':e.stderr?.includes('Traceback')?'Не удалось извлечь содержимое документа: '+String(e.stderr).trim().split('\n').at(-1):String(e.message||'Не удалось обработать материал').slice(0,700);const status=/Ожидает ключа/.test(error)?'waiting_key':/Лимит AI/.test(error)?'waiting_limit':'failed';
       const attempts=Number(input.attempts||0),temporary=Number(e.status)>=500||Number(e.status)===429||/соединение.*прервано|fetch failed/i.test(error);
-      if(temporary&&attempts<2){await db.material.update({where:{id:material.id},data:{status:'queued',error:null}});await db.processingJob.update({where:{id:job.id},data:{status:'queued',payload:{...input,attempts:attempts+1},error,leaseUntil:null}});if(material.meetingId)await db.meeting.update({where:{id:material.meetingId},data:{state:'PROCESSING',error:null,processingStage:'Повтор соединения с AI'}});return;}
+      if(temporary&&attempts<2){await db.material.update({where:{id:material.id},data:{status:'queued',error:null}});await db.processingJob.update({where:{id:job.id},data:{status:'running',stage:'Ожидание повторного запроса',payload:{...input,attempts:attempts+1},error,leaseUntil:new Date(Date.now()+Math.min(300000,Math.max(10000,(Number(e.retryAfterSeconds)||30)*1000)))}});if(material.meetingId)await db.meeting.update({where:{id:material.meetingId},data:{state:'PROCESSING',error:null,processingStage:Number(e.status)===429?'Ожидание снятия ограничения сервиса':'Повтор соединения'}});return;}
       await db.material.update({where:{id:material.id},data:{status,error}});await db.processingJob.update({where:{id:job.id},data:{status,stage:status==='waiting_key'?'Ожидает ключа':status==='waiting_limit'?'Лимит исчерпан':'Ошибка',error,leaseUntil:null}});
       if(material.meetingId)await db.meeting.update({where:{id:material.meetingId},data:{state:'FAILED',processingStage:status==='waiting_key'?'Ожидает ключа':'Ошибка',error}});
     }finally{clearInterval(heartbeat);}

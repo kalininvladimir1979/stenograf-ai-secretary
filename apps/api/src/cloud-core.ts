@@ -1,3 +1,4 @@
+import {cloudHttpError} from './cloud-http.js';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import https from 'node:https';
@@ -42,7 +43,7 @@ export async function safeResponse(raw:string, redirects=0, headers:Record<strin
     request.on('timeout',()=>request.destroy(new Error('Истекло время скачивания.')));request.on('error',reject);
   });
   if([301,302,303,307,308].includes(response.statusCode)){response.resume();const next=new URL(response.headers.location,u);return safeResponse(next.href,redirects+1,next.origin===u.origin?headers:{},allowAnyPublicHost);}
-  if(response.statusCode!==200){response.resume();throw new Error(`Облако не разрешило скачивание (HTTP ${response.statusCode}). Скачайте файл и загрузите вручную.`);}
+  if(response.statusCode!==200){response.resume();throw cloudHttpError(response.statusCode,response.headers['retry-after']);}
   return response;
 }
 export async function downloadFile(url:string,destination:string,maxBytes:number,headers:Record<string,string>={},allowAnyPublicHost=false) {
