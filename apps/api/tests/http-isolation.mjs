@@ -31,15 +31,16 @@ try{
  const renamedDepartment=before.demoDepartments[0].departmentId;await db.department.update({where:{id:renamedDepartment},data:{name:'Инженерный отдел'}});
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.demoDepartments[0].name,'Инженерный отдел');
  await db.department.update({where:{id:renamedDepartment},data:{name:'Разработка'}});
- assert.equal(before.remaining,null);
+ assert.equal(before.meetingCount,0);
+ assert.equal(before.remaining,before.meetingLimit>0?before.meetingLimit:null);
  const originalMeeting=await db.meeting.findUniqueOrThrow({where:{id:own[0].id}});
  const deferred=await request('/meetings',{organizationId:org,departmentId:originalMeeting.departmentId,templateId:originalMeeting.templateId,title:'Материалы новой встречи',notes:'Контекст до загрузки файла',deferAnalysis:true},browsers[0],a.token);
  assert.equal(deferred.status,200);assert.equal(deferred.data.state,'DRAFT');assert.equal(deferred.data.transcript.text,'Контекст до загрузки файла');
  assert.equal(await db.analysisVersion.count({where:{meetingId:deferred.data.id}}),0);
- assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.remaining,null);
+ assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.meetingCount,1);
  const bad=await request('/materials/import',{organizationId:org,url:'https://127.0.0.1/private'},browsers[0],a.token);
  assert.equal(bad.status,400);
- assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],b.token)).data.remaining,null);
+ assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],b.token)).data.meetingCount,1);
  const admin=(await request('/auth/demo-admin-session',{password:'1234'},browsers[0])).data;
  assert.equal((await request('/admin/access?organizationId='+org,null,browsers[0],admin.token)).data.allowed,true);
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],admin.token)).data.demoRole,'admin');
@@ -63,7 +64,7 @@ try{
  assert.equal((await request('/cloud/folders/check-all',{organizationId:org},browsers[1],foreignAdmin.token)).status,403);
  const emptyScan=await request('/cloud/folders/check-all',{organizationId:org},browsers[0],admin.token);
  assert.equal(emptyScan.data.summary.total,0);assert.equal(emptyScan.status,200);assert.equal(emptyScan.data.summary.folders,0);assert.equal(emptyScan.data.summary.queued,0);
- assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],admin.token)).data.remaining,null);
+ assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],admin.token)).data.meetingCount,1);
  const manualFolder=await db.cloudFolder.create({data:{organizationId:org,ownerId:a.user.id,provider:'yandex',name:'Manual schedule fixture',providerFolderId:'disk:/fixture',url:'https://disk.yandex.ru/d/fixture',status:'paused',settings:{},schedule:{mode:'interval',minutes:60},nextRunAt:new Date(Date.now()+3600000)}});
  const manualSaved=await request('/cloud/folders/'+manualFolder.id,{schedule:{mode:'manual'}},browsers[0],admin.token,'PUT');
  assert.equal(manualSaved.status,200);assert.equal(manualSaved.data.nextRunAt,null);assert.equal(manualSaved.data.schedule.mode,'manual');
@@ -77,7 +78,7 @@ try{
  const reportUpload=async(meetingId,name='chart.png')=>{const form=new FormData();form.append('file',new Blob([await fs.readFile('test-data/implementation-chart.png')],{type:'image/png'}),name);return fetch(origin+'/meetings/'+meetingId+'/report-images/upload',{method:'POST',headers:{Authorization:'Bearer '+a.token,'x-demo-browser':browsers[0]},body:form});};
  const uploaded=await reportUpload(own[0].id);assert.equal(uploaded.status,201);const reportImage=await uploaded.json();assert.equal(reportImage.origin,'uploaded');
  assert.equal((await db.material.findUniqueOrThrow({where:{id:reportImage.materialId}})).selected,false);
- assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.remaining,null);
+ assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.meetingCount,1);
  assert.equal((await reportUpload(second[0].id)).status,403);
  assert.equal((await reportUpload(own[0].id,'invalid.txt')).status,400);
  const commentStatus=await db.taskStatus.findFirstOrThrow({where:{organizationId:org,key:'DRAFT'}});
@@ -88,7 +89,7 @@ try{
  assert.equal(await db.taskComment.count({where:{taskId:commentTask.id}}),1);
  const deniedDictation=new FormData();deniedDictation.append('audio',new Blob(['synthetic fixture'],{type:'audio/webm'}),'fixture.webm');
  const deniedVoice=await fetch(origin+'/meetings/'+second[0].id+'/chat-dictation',{method:'POST',headers:{Authorization:'Bearer '+a.token,'x-demo-browser':browsers[0]},body:deniedDictation});
- assert.equal(deniedVoice.status,404);assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.remaining,null);
+ assert.equal(deniedVoice.status,404);assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.meetingCount,1);
  const dev=await fetch(origin+'/developer/multimodal',{headers:{'x-dev-password':'1234'}});
  assert.equal(dev.status,200); // Explicit owner override: keep 1234 for Dev for now.
  console.log(JSON.stringify({browserIsolation:true,departmentIsolation:true,adminSeparation:true,cloudMainSettingIsolation:true,reportUploadWithoutAI:true,invalidLinkDoesNotSpend:true,fiveProviders:true,devPassword1234:true}));
