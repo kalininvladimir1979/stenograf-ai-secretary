@@ -589,10 +589,12 @@ type MeetingOpenAiKeySource = "organization" | "environment" | "developer-demo" 
  */
 async function meetingOpenAiKey(organizationId: string): Promise<{ key: string; source: MeetingOpenAiKeySource }> {
   const space = await db.demoSpace.findUnique({where:{organizationId}});
-  if(space) {
-    if(await setting('demo_use_developer_key') === 'true') {
+  const organization = await db.organization.findUnique({ where: { id: organizationId }, select: { slug: true } });
+  if(space || organization?.slug === 'demo-stenograf') {
+    const demo = await demoModeConfig();
+    if(demo.enabled && demo.features.analysis && await setting('demo_use_developer_key') === 'true') {
       const key=await setting('developer_openai_api_key');
-      if(key)return {key,source:'developer-demo'};
+      return {key:key||'',source:key?'developer-demo':'none'};
     }
     const own=await db.devSetting.findUnique({where:{key:organizationSettingKey(organizationId,'openai_api_key')}});
     const key=own?.value?(own.value.startsWith('v1:')?decryptPublicationSecret(own.value):own.value):'';
@@ -602,14 +604,6 @@ async function meetingOpenAiKey(organizationId: string): Promise<{ key: string; 
   if (organizationKey) return { key: organizationKey, source: "organization" };
   if (process.env.OPENAI_API_KEY) return { key: process.env.OPENAI_API_KEY, source: "environment" };
 
-  const [organization, demo] = await Promise.all([
-    db.organization.findUnique({ where: { id: organizationId }, select: { slug: true } }),
-    demoModeConfig(),
-  ]);
-  if (organization?.slug === "demo-stenograf" && demo.enabled && demo.features.analysis) {
-    const developerKey = await setting("developer_openai_api_key");
-    if (developerKey) return { key: developerKey, source: "developer-demo" };
-  }
   return { key: "", source: "none" };
 }
 

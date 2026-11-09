@@ -3723,6 +3723,22 @@ const demoFeatureLabels: { key: keyof DemoFeatures; label: string; hint: string 
   { key: "chat", label: "Диалог по встрече", hint: "Вопросы к материалам встречи." },
 ];
 function DeveloperSecurity({ demoMode, onDemoModeChange }: { demoMode: boolean; onDemoModeChange: (enabled: boolean) => void }) {
+  const [platformKeyEnabled, setPlatformKeyEnabled] = useState<boolean | null>(null);
+  const [savingPlatformKey, setSavingPlatformKey] = useState(false);
+  const [platformKeyError, setPlatformKeyError] = useState("");
+  useEffect(() => {
+    dev<any>("/developer/multimodal").then((data) => setPlatformKeyEnabled(data.config.useDeveloperKey))
+      .catch(() => setPlatformKeyError("Не удалось загрузить настройку ключа платформы. Обновите страницу."));
+  }, []);
+  const togglePlatformKey = async () => {
+    if (platformKeyEnabled === null) return;
+    setSavingPlatformKey(true); setPlatformKeyError("");
+    try {
+      await dev("/developer/multimodal", { method: "PUT", body: JSON.stringify({ demo_use_developer_key: String(!platformKeyEnabled) }) });
+      setPlatformKeyEnabled(!platformKeyEnabled);
+    } catch (error) { setPlatformKeyError(error instanceof Error ? error.message : "Не удалось сохранить настройку."); }
+    finally { setSavingPlatformKey(false); }
+  };
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
@@ -3788,6 +3804,8 @@ function DeveloperSecurity({ demoMode, onDemoModeChange }: { demoMode: boolean; 
     <section className="demo-settings" aria-labelledby="demo-mode-title">
       <header><Lock size={20} /><div><h2 id="demo-mode-title">Демо-режим</h2><p>Публичное тестовое пространство и возможности посетителей. Переключатели сохраняются сразу.</p></div></header>
       <div className="demo-mode"><div><h3>{savedDemoConfig?.enabled ? "Демо-режим включён" : "Демо-режим выключен"}</h3><p>{changingDemoMode ? "Сохраняем настройку на сервере…" : "При выключении действует обычный вход."}</p></div><button type="button" className={`demo-mode__switch ${demoConfig.enabled ? "is-on" : ""}`} role="switch" aria-checked={demoConfig.enabled} aria-label="Демо-режим" disabled={changingDemoMode || !savedDemoConfig} onClick={() => { const next = { ...demoConfig, enabled: !demoConfig.enabled }; void saveDemoMode(next); }}><span aria-hidden="true" /></button></div>
+      <div className="demo-mode"><div><h3>Использовать ключ платформы</h3><p>В демо используется ключ OpenAI из раздела «Секреты API» этой консоли. Когда выключено — ключ из админки демо-пространства.</p>{savingPlatformKey && <p role="status">Сохраняем…</p>}</div><button type="button" className={`demo-mode__switch ${platformKeyEnabled ? "is-on" : ""}`} role="switch" aria-checked={platformKeyEnabled === true} aria-label="Использовать ключ платформы" disabled={savingPlatformKey || platformKeyEnabled === null || !savedDemoConfig} onClick={() => void togglePlatformKey()}><span aria-hidden="true" /></button></div>
+      {platformKeyError && <p className="error" role="alert">{platformKeyError}</p>}
       <div className="demo-feature-list">{demoFeatureLabels.map(({ key, label, hint }) => <div className="demo-mode" key={key}><div><h3>{label}</h3><p>{hint}</p></div><button type="button" className={`demo-mode__switch ${demoConfig.features[key] ? "is-on" : ""}`} role="switch" aria-checked={demoConfig.features[key]} aria-label={label} disabled={changingDemoMode || !savedDemoConfig} onClick={() => { const next = { ...demoConfig, features: { ...demoConfig.features, [key]: !demoConfig.features[key] } }; void saveDemoMode(next); }}><span aria-hidden="true" /></button></div>)}</div>
       <div className="demo-settings__actions"><button type="button" className="primary" disabled={(!demoChanged && !pendingDemoConfig) || changingDemoMode} onClick={() => void saveDemoMode(pendingDemoConfig ?? demoConfig)}>{changingDemoMode ? "Сохраняем…" : "Повторить сохранение"}</button><span>{pendingDemoConfig ? "Изменение не сохранено на сервере" : demoChanged ? "Настройка ещё не сохранена" : "Настройки сохранены на сервере"}</span></div>
       {demoModeError && <p className="error" role="alert">{demoModeError}</p>}
@@ -4237,6 +4255,7 @@ function App() {
     [workspaceTourStep, setWorkspaceTourStep] = useState<number | null>(null),
     [demoMode, setDemoMode] = useState(false);
   const [demoConfig, setDemoConfig] = useState<DemoConfig>({ enabled: false, features: defaultDemoFeatures });
+  const [demoKeyUsage, setDemoKeyUsage] = useState<any>(null);
   const load = async (finishLoading = true) => {
     const requestedToken=token();
     try {
@@ -4488,7 +4507,7 @@ function App() {
         onCreate={() => setCreate(true)}
         onView={navigateToView}
       />
-      <Usage orgId={org.id}/>
+      <Usage orgId={org.id} onUsage={setDemoKeyUsage}/>
       <MainCloudConnections orgId={org.id} canManage={['OWNER','ADMIN'].includes(current.role)}><CollectionViewToggle value={meetingListView} onChange={changeMeetingListView} options={meetingListViewOptions} label="Представление списка встреч" /></MainCloudConnections>
       {user.email.endsWith('@demo.stenograf.local')&&!['OWNER','ADMIN'].includes(current.role)&&<p><a href={surfaceUrl('admin','cloud')}>Настроить облачные папки и режим «Файл / папка — встреча»</a> · пароль демо-админки: 1234</p>}
       <div className="metrics">
@@ -4509,6 +4528,14 @@ function App() {
           <b>0</b>
         </div>
       </div>
+      {demoKeyUsage?.organizationId === org.id && demoKeyUsage.demo && <div className="demo-key-notice" role="status">
+        <Lock size={18} aria-hidden="true" />
+        <div><strong>{demoKeyUsage.platformKeyEnabled ? "Демо-режим с использованием ключа платформы" : "Демо-доступ · свой ключ OpenAI"}</strong>
+          {demoKeyUsage.platformKeyEnabled
+            ? <p>{demoKeyUsage.platformKeyConfigured ? "Для AI-обработки используется ключ платформы." : "Ключ платформы пока не сохранён. Обратитесь к разработчику для настройки."}</p>
+            : <p>{demoKeyUsage.hasKey ? "Используется ваш ключ OpenAI из настроек демо-пространства. " : "Для работы введите свой ключ OpenAI API в админке. "}<a href={surfaceUrl('admin','integrations')}>Открыть настройки ключа</a><span> · Пароль демо-админки: <b>1234</b></span></p>}
+        </div>
+      </div>}
       <div className={`meeting-list meeting-list--${meetingListView}`} data-tour-fallback="meeting-results meeting-task-editor">
         {visibleMeetings.map((x) => (
           <MeetingCard
