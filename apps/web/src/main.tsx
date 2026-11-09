@@ -52,6 +52,7 @@ import TranscriptView from "./TranscriptView";
 import {modelCatalogOrganizations,shouldStartPublicDemo,workspaceUrl,surfaceForPath,surfaceUrl} from "./workspace-access";
 import WorkspaceSignInDialog from "./WorkspaceSignInDialog";
 import LocalPasswordReset from "./LocalPasswordReset";
+import WorkspaceSetup from "./WorkspaceSetup";
 import AdminInstructions,{InstructionsHelp} from "./Instructions";
 
 import ChatComposer,{useVoiceInput,transcribeVoice,VoiceMeter} from "./VoiceInput";
@@ -4236,7 +4237,7 @@ function App() {
       );
       setUser(x.user);
       setMemberships(x.organizations);
-      setCurrent((c) => c || x.organizations[0]);
+      setCurrent((c) => x.organizations.find(item=>item.organization.id===c?.organization.id) || x.organizations[0] || null);
       return x;
     } catch {
       localStorage.removeItem("secretary-token");
@@ -4337,7 +4338,7 @@ function App() {
         }}
       />
     );
-  if (!user || !current)
+  if (!user)
     return (
       <Login
         demoAvailable={demoConfig.enabled&&demoConfig.features.publicAccess}
@@ -4347,6 +4348,7 @@ function App() {
         }}
       />
     );
+  if (!current) return <WorkspaceSetup email={user.email} onCreated={()=>{setLoading(true);void load();}}/>;
   const org = current.organization;
   const changeMeetingListView = (next: MeetingListView) => {
     setMeetingListView(next);

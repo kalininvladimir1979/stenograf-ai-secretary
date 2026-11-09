@@ -3,6 +3,7 @@ import "dotenv/config";
 import {publicationStatus} from "./publication-status.js";
 import {releaseMode,prepareMaintenance,finishMaintenance,type ReleaseMode} from "./release-maintenance.js";
 import {installLocalPasswordReset} from "./local-password-reset.js";
+import {createWorkspace} from "./create-workspace.js";
 import {installInstructions} from "./instructions.js";
 import express, {
   type Request,
@@ -975,26 +976,13 @@ app.get("/organizations", auth, async (req: Authed, res) => {
   res.json(await context(req.user!.id));
 });
 app.post("/organizations", auth, async (req: Authed, res) => {
-  const p = z.object({ name: z.string().min(2) }).parse(req.body);
-  const org = await db.organization.create({
-    data: {
-      name: p.name,
-      slug: `org-${randomUUID().slice(0, 8)}`,
-      departments: { create: { name: "Общий" } },
-    },
-  });
-  const d = await db.department.findFirstOrThrow({
-    where: { organizationId: org.id },
-  });
-  await db.membership.create({
-    data: {
-      userId: req.user!.id,
-      organizationId: org.id,
-      departmentId: d.id,
-      role: OrgRole.OWNER,
-    },
-  });
-  res.json(org);
+  const input=z.object({name:z.string().trim().min(2).max(120)}).safeParse(req.body);
+  if(!input.success)return res.status(400).json({error:'Введите название организации от 2 до 120 символов.'});
+  try{
+    const org=await createWorkspace(db,req.user!.id,input.data.name,`org-${randomUUID().slice(0, 8)}`);
+    await audit(req.user!.id,org.id,'organization.created','Organization',org.id);
+    res.json(org);
+  }catch{res.status(500).json({error:'Не удалось создать организацию. Повторите попытку.'});}
 });
 app.post("/departments", auth, async (req: Authed, res) => {
   const p = z
