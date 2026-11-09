@@ -1,5 +1,6 @@
 // @ts-nocheck
 import "dotenv/config";
+import {installInstructions} from "./instructions.js";
 import express, {
   type Request,
   type Response,
@@ -1214,6 +1215,7 @@ function enqueueMeetingMedia(meetingId: string, task: () => Promise<void>) {
     if (meetingMediaQueues.get(meetingId) === current) meetingMediaQueues.delete(meetingId);
   }).catch((error) => console.error("Media processing failed:", error));
 }
+await installInstructions({app,db,auth,member,jwtSecret,transcribe:transcribeLongAudio,readableName:readableUploadName});
 app.post(["/meetings/:id/dictation","/meetings/:id/chat-dictation"], auth, upload.single("audio"), async (req: Authed, res) => {
   const recording = req.file;
   if (!recording) return res.status(400).json({ error: "Запись не получена." });

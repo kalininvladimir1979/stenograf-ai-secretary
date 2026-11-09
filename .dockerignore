@@ -7,3 +7,5 @@ storage
 npm-debug.log*
 **/__pycache__
 **/*.pyc
+
+var/cache/fontconfig

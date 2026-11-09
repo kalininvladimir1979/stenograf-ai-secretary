@@ -10,3 +10,6 @@ storage/
 output/
 **/__pycache__/
 *.pyc
+
+# Local font cache created by PDF preview tools
+var/cache/fontconfig/

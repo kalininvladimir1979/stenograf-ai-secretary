@@ -49,6 +49,7 @@ import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from ".
 import KnowledgeTransfer from "./KnowledgeTransfer";
 import CloudStorageCheck from "./CloudStorageCheck";
 import TranscriptView from "./TranscriptView";
+import AdminInstructions,{InstructionsHelp} from "./Instructions";
 
 import ChatComposer,{useVoiceInput,transcribeVoice,VoiceMeter} from "./VoiceInput";
 import {appendDictation} from "./voice-dictation";
@@ -409,14 +410,7 @@ function Top({
           </button>}
         </nav>
         <div className="top-actions">
-          <button
-            className="icon-action"
-            aria-label={view === "admin" ? "Открыть пошаговую инструкцию по админ-панели" : "Открыть краткую инструкцию по сайту"}
-            title={view === "admin" ? "Инструкция по админ-панели" : "Как пользоваться сайтом"}
-            onClick={view === "admin" ? onAdminTour : onSiteGuide}
-          >
-            <CircleHelp size={16} />
-          </button>
+          <InstructionsHelp key={org?.id} orgId={org?.id} onGuide={view === "admin" ? onAdminTour : onSiteGuide}/>
           <button
             className="icon-action"
             aria-label={
@@ -2245,7 +2239,7 @@ function Admin({ org, onBack, onOrganizationChanged, tourSignal }: { org: Org; o
     [editingTemplateId, setEditingTemplateId] = useState<string | null>(null),
     [saving, setSaving] = useState(false),
     [tourStep, setTourStep] = useState<number | null>(null),
-    [openSection, setOpenSection] = useState<string>(() => new URLSearchParams(window.location.search).get("section") === "cloud" ? "cloud" : "integrations");
+    [openSection, setOpenSection] = useState<string>(() => ["cloud","instructions"].includes(new URLSearchParams(window.location.search).get("section")||"") ? new URLSearchParams(window.location.search).get("section")! : "integrations");
   const tourStorageKey = `secretary-admin-tour:${org.id}:v1`;
   const load = () =>
     api<any>(`/admin/templates?organizationId=${org.id}`).then(setData);
@@ -2301,6 +2295,7 @@ function Admin({ org, onBack, onOrganizationChanged, tourSignal }: { org: Org; o
         <span>НАСТРОЙКИ АГЕНТА</span>
         <button className={openSection === "integrations" ? "active" : ""} onClick={() => setOpenSection("integrations")}>Главная и ключи</button>
         <button className={openSection === "cloud" ? "active" : ""} onClick={() => setOpenSection("cloud")}>Облачные папки</button>
+        <button className={openSection === "instructions" ? "active" : ""} onClick={() => setOpenSection("instructions")}>Инструкции</button>
         <button className={openSection === "templates" ? "active" : ""} onClick={() => setOpenSection("templates")}>Шаблоны встреч</button>
         <button className={openSection === "retention" ? "active" : ""} onClick={() => setOpenSection("retention")}>Аудио и хранение</button>
         <button className={openSection === "board" ? "active" : ""} onClick={() => setOpenSection("board")}>Доска поручений</button>
@@ -2308,6 +2303,7 @@ function Admin({ org, onBack, onOrganizationChanged, tourSignal }: { org: Org; o
         <button className={openSection === "members" ? "active" : ""} onClick={() => setOpenSection("members")}>Команда и роли</button>
       </nav>
       <div className="admin-layout__content">
+      {openSection === "instructions" && <AdminInstructions key={org.id} orgId={org.id}/>}
       {openSection==='cloud'&&<CloudFolders orgId={org.id}/>}
       <AccordionSection title="Шаблоны встреч" summary="Структура AI-результата и пользовательские сценарии" open={openSection === "templates"} onToggle={() => setOpenSection("templates")} tourTarget="templates">
       <div className="template-guide" aria-label="Как работать с шаблонами встреч">

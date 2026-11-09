@@ -30,10 +30,10 @@ export function publicAddress(ip:string) {
   return isIP(ip)===6 && !/^(::|fc|fd|fe[89ab]|ff)/i.test(ip) && !ip.toLowerCase().startsWith('2001:db8:');
 }
 // Pin the checked DNS answer to the actual socket, and validate every redirect.
-export async function safeResponse(raw:string, redirects=0, headers:Record<string,string>={}):Promise<any> {
+export async function safeResponse(raw:string, redirects=0, headers:Record<string,string>={},allowAnyPublicHost=false):Promise<any> {
   if(redirects>5) throw new Error('Слишком много перенаправлений. Загрузите файл вручную.');
   const u=new URL(raw);
-  if(u.protocol!=='https:'||u.username||u.password||u.port&&u.port!=='443'||!hosts.some(h=>u.hostname===h||u.hostname.endsWith('.'+h))) throw new Error('Адрес скачивания не разрешён. Загрузите файл вручную.');
+  if(u.protocol!=='https:'||u.username||u.password||u.port&&u.port!=='443'||(!allowAnyPublicHost&&!hosts.some(h=>u.hostname===h||u.hostname.endsWith('.'+h)))) throw new Error('Адрес скачивания не разрешён. Загрузите файл вручную.');
   const addresses=await lookup(u.hostname,{all:true});
   if(!addresses.length||addresses.some(x=>!publicAddress(x.address))) throw new Error('Облачная ссылка указывает на запрещённый сетевой адрес.');
   const address=addresses[0];
@@ -41,12 +41,12 @@ export async function safeResponse(raw:string, redirects=0, headers:Record<strin
     const request=https.get(u,{headers,lookup:((_h:any,options:any,cb:any)=>options?.all?cb(null,[address]):cb(null,address.address,address.family)) as any,timeout:30000},resolve);
     request.on('timeout',()=>request.destroy(new Error('Истекло время скачивания.')));request.on('error',reject);
   });
-  if([301,302,303,307,308].includes(response.statusCode)){response.resume();const next=new URL(response.headers.location,u);return safeResponse(next.href,redirects+1,next.origin===u.origin?headers:{});}
+  if([301,302,303,307,308].includes(response.statusCode)){response.resume();const next=new URL(response.headers.location,u);return safeResponse(next.href,redirects+1,next.origin===u.origin?headers:{},allowAnyPublicHost);}
   if(response.statusCode!==200){response.resume();throw new Error(`Облако не разрешило скачивание (HTTP ${response.statusCode}). Скачайте файл и загрузите вручную.`);}
   return response;
 }
-export async function downloadFile(url:string,destination:string,maxBytes:number,headers:Record<string,string>={}) {
-  const response=await safeResponse(url,0,headers);
+export async function downloadFile(url:string,destination:string,maxBytes:number,headers:Record<string,string>={},allowAnyPublicHost=false) {
+  const response=await safeResponse(url,0,headers,allowAnyPublicHost);
   const mime=String(response.headers['content-type']||'').split(';')[0];
   if(/text\/html|application\/json/.test(mime)){response.destroy();throw new Error('Получена страница просмотра вместо файла. Скачайте файл и загрузите вручную.');}
   if(Number(response.headers['content-length']||0)>maxBytes){response.destroy();throw new Error('Файл превышает настроенный предел загрузки.');}
