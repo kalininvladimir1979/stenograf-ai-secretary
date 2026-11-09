@@ -199,6 +199,9 @@ export async function importArchive(db,opened,{storageRoot,ownerId,encryptSecret
      if(m.name==='User'&&existingEmails.has(source.email.toLowerCase()))continue;
      if(['Membership','Notification'].includes(m.name)&&blockedExistingUsers.has(source.userId))continue;
      let row=walk(source,translate);
+     // An email collision must not transfer ownership of unattached files or
+     // cloud credentials to an unrelated existing account on the destination.
+     if(source.ownerId&&blockedExistingUsers.has(source.ownerId))row.ownerId=ownerId;
      if(m.name==='Organization'){row.slug=row.slug+'-import-'+importId.slice(0,8);row.name=row.name+' (импорт)';}
      if(m.name==='DevSetting'){
       if(source.organizationId&&source.key.startsWith('organization:'+source.organizationId+':'))row.key='organization:'+maps.get(source.organizationId)+source.key.slice(('organization:'+source.organizationId).length);
@@ -211,7 +214,7 @@ export async function importArchive(db,opened,{storageRoot,ownerId,encryptSecret
      if(m.name==='CloudAccount'&&row.tokens&&typeof row.tokens==='object')row.tokens=encryptSecret(row.tokens.archiveSecret);
      if(m.name==='Material'){row.fingerprint=createHash('sha256').update(importId+':'+row.fingerprint).digest('hex');if(['queued','processing'].includes(row.status)){row.status='waiting_key';row.error='Восстановлено из архива. Запустите обработку вручную.';}}
      if(m.name==='Meeting'&&row.state==='PROCESSING'){row.state='DRAFT';row.processingStartedAt=null;row.processingStage=null;row.error='Восстановлено из архива. Запустите анализ вручную.';}
-     if(m.name==='CloudFolder'){row.status='paused';row.nextRunAt=null;row.leaseUntil=null;row.registry={};}
+     if(m.name==='CloudFolder'){row.status='paused';row.nextRunAt=null;row.leaseUntil=null;row.registry=source.registry;}
      if(m.name==='MeetingInvite'){row.token=randomUUID();row.revokedAt=new Date().toISOString();}
      if(m.name==='Notification'&&row.link)row.link=row.link.replace(/[A-Za-z0-9_-]+/g,part=>maps.get(part)||part);
      if(row.operationId){if(!operationIds.has(source.operationId))operationIds.set(source.operationId,randomUUID());row.operationId=operationIds.get(source.operationId);}
@@ -248,7 +251,7 @@ export function installArchiveTransfer({app,db,protectedDev,ownerGuard,storageRo
  const upload=multer({storage:multer.diskStorage({destination(req,file,cb){fs.mkdtemp(path.join(os.tmpdir(),'stenograf-upload-')).then(directory=>{req.archiveUploadWork=directory;cb(null,directory);},cb);},filename(req,file,cb){cb(null,'upload.stenograf');}}),limits:{files:1,fileSize:MAX_BYTES+256*1024**2}});
  const removeStale=async()=>{for(const entry of await fs.readdir(os.tmpdir(),{withFileTypes:true})){if(!entry.isDirectory()||!/^stenograf-(?:export|import|upload)-/.test(entry.name))continue;const p=path.join(os.tmpdir(),entry.name),stat=await fs.stat(p);if(Date.now()-stat.mtimeMs>2*60*60000)await fs.rm(p,{recursive:true,force:true});}};
  void removeStale().catch(()=>undefined);
- const cleanTimer=setInterval(()=>{for(const[id,item]of staged)if(item.expires<Date.now()&&!item.applying){staged.delete(id);void item.opened.cleanup();}},60000);cleanTimer.unref();
+ const cleanTimer=setInterval(()=>{for(const[id,item]of staged)if(item.expires<Date.now()&&!item.applying){staged.delete(id);void item.opened.cleanup();}void removeStale().catch(()=>undefined);},60000);cleanTimer.unref();
  app.post('/developer/archive/export',protectedDev,ownerGuard,wrap(async(req,res)=>{
   if(exporting)return res.status(409).json({error:'Предыдущий архив ещё подготавливается или скачивается.'});
   if(!['processed','all'].includes(req.body.scope))throw Error('Выберите состав архива.');

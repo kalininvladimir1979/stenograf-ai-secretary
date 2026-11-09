@@ -17,9 +17,10 @@ test('encrypted processed and full archives restore relational data and files in
  const base=new URL(process.env.DATABASE_URL);assert.ok(['localhost','127.0.0.1'].includes(base.hostname),'Local database required');
  const suffix=randomUUID().replaceAll('-',''),schemas=['archive_source_'+suffix,'archive_target_'+suffix],clients=[];
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'stenograf-archive-test-')),sourceRoot=path.join(root,'source'),targetRoot=path.join(root,'target');await fs.mkdir(sourceRoot);await fs.mkdir(targetRoot);
- const admin=new PrismaClient(),key=randomBytes(32);
- const encrypt=text=>{const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv),bytes=Buffer.concat([cipher.update(text),cipher.final()]);return 'v1:'+iv.toString('base64url')+':'+cipher.getAuthTag().toString('base64url')+':'+bytes.toString('base64url');};
- const decrypt=text=>{const[,iv,tag,bytes]=text.split(':'),cipher=createDecipheriv('aes-256-gcm',key,Buffer.from(iv,'base64url'));cipher.setAuthTag(Buffer.from(tag,'base64url'));return Buffer.concat([cipher.update(Buffer.from(bytes,'base64url')),cipher.final()]).toString();};
+ const admin=new PrismaClient(),key=randomBytes(32),targetKey=randomBytes(32);
+ const encrypt=(text,cipherKey=key)=>{const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',cipherKey,iv),bytes=Buffer.concat([cipher.update(text),cipher.final()]);return 'v1:'+iv.toString('base64url')+':'+cipher.getAuthTag().toString('base64url')+':'+bytes.toString('base64url');};
+ const decrypt=(text,cipherKey=key)=>{const[,iv,tag,bytes]=text.split(':'),cipher=createDecipheriv('aes-256-gcm',cipherKey,Buffer.from(iv,'base64url'));cipher.setAuthTag(Buffer.from(tag,'base64url'));return Buffer.concat([cipher.update(Buffer.from(bytes,'base64url')),cipher.final()]).toString();};
+ const targetEncrypt=text=>encrypt(text,targetKey),targetDecrypt=text=>decrypt(text,targetKey);
  const archives=[],opened=[];
  try{
   for(const schema of schemas){const url=new URL(base);url.searchParams.set('schema',schema);await run('node_modules/.bin/prisma',['db','push','--schema','apps/api/prisma/schema.prisma','--skip-generate'],{env:{...process.env,DATABASE_URL:url.href},timeout:120000,maxBuffer:1024*1024});clients.push(new PrismaClient({datasources:{db:{url:url.href}}}));}
@@ -39,8 +40,9 @@ test('encrypted processed and full archives restore relational data and files in
   const file=path.join(sourceRoot,'source-recording.txt');await fs.writeFile(file,'Synthetic media bytes');
   await source.transcript.create({data:{meetingId:meeting.id,text:'Synthetic transcript',source:'upload',audioPath:file}});
   const material=await source.material.create({data:{organizationId:org.id,ownerId:sourceUser.id,meetingId:meeting.id,name:'recording.txt',kind:'document',localPath:file,fingerprint:'original-fingerprint',status:'ready'}});
+  await source.material.create({data:{organizationId:org.id,ownerId:teammate.id,name:'private-unattached.txt',kind:'document',localPath:file,fingerprint:'unattached-fingerprint',status:'ready'}});
   const account=await source.cloudAccount.create({data:{organizationId:org.id,ownerId:sourceUser.id,provider:'yandex',label:'Synthetic cloud',tokens:encrypt('{"access_token":"fixture-token"}')}});
-  const folder=await source.cloudFolder.create({data:{organizationId:org.id,ownerId:sourceUser.id,accountId:account.id,provider:'yandex',name:'Fixture folder',url:'https://example.invalid/folder',providerFolderId:'fixture-folder',settings:{},schedule:{mode:'manual'},registry:{old:'registry'},nextRunAt:new Date()}});
+  const folder=await source.cloudFolder.create({data:{organizationId:org.id,ownerId:sourceUser.id,accountId:account.id,provider:'yandex',name:'Fixture folder',url:'https://example.invalid/folder',providerFolderId:'fixture-folder',settings:{},schedule:{mode:'manual'},registry:{'fixture-file':{stamp:'v1:12',name:'recording.txt',imported:true}},nextRunAt:new Date()}});
   await source.material.update({where:{id:material.id},data:{folderId:folder.id}});
   await source.syncRun.create({data:{folderId:folder.id,status:'completed'}});
   const version=await source.analysisVersion.create({data:{meetingId:meeting.id,number:1,result:{summary:'Confirmed'},snapshot:{},state:'applied',operationId:'op-fixture'}});
@@ -60,7 +62,7 @@ test('encrypted processed and full archives restore relational data and files in
    const archive=await openEncryptedArchive(exported.file,password,script);opened.push(archive);
    assert.equal(archive.document.rows.Meeting.length,scope==='processed'?1:2);assert.equal(archive.document.rows.DevSetting.some(r=>r.key==='developer_owner_user_id'),false);assert.ok(!JSON.stringify(archive.document).includes('never-export-this'));
    const poisoned=structuredClone(archive.document);poisoned.rows.Membership[0].userId='missing-user';assert.throws(()=>validateArchive(poisoned,archive.manifest),/Отсутствует связанная/);
-   const imported=await importArchive(target,archive,{storageRoot:targetRoot,ownerId:targetOwner.id,encryptSecret:encrypt});assert.equal(imported.meetings,scope==='processed'?1:2);
+   const imported=await importArchive(target,archive,{storageRoot:targetRoot,ownerId:targetOwner.id,encryptSecret:targetEncrypt});assert.equal(imported.meetings,scope==='processed'?1:2);
    assert.equal((await target.user.findUnique({where:{id:targetOwner.id}})).passwordHash,'preserve-target-password');
    assert.equal(await target.membership.count({where:{userId:existingTeammate.id}}),0);assert.equal(await target.notification.count({where:{userId:existingTeammate.id}}),0);
    assert.equal((await target.user.findUnique({where:{email:newTeammate.email}})).passwordHash,newTeammate.passwordHash);
@@ -69,18 +71,19 @@ test('encrypted processed and full archives restore relational data and files in
    const op=await target.aiOperation.findFirst({where:{meetingId:copied.id}});assert.equal(copied.versions[0].operationId,op.id);
    assert.equal((await target.devSetting.findUnique({where:{key:'report_illustrations:'+copied.id}})).value,'true');
    if(scope==='all'){
-    assert.equal(decrypt((await target.devSetting.findUnique({where:{key:'developer_openai_api_key'}})).value),'synthetic-api-secret');
-    const importedFolder=await target.cloudFolder.findFirst({include:{account:true,runs:true}});assert.equal(importedFolder.status,'paused');assert.equal(importedFolder.nextRunAt,null);assert.deepEqual(importedFolder.registry,{});assert.equal(decrypt(importedFolder.account.tokens),'{"access_token":"fixture-token"}');assert.equal(importedFolder.runs.length,1);
+    assert.equal((await target.material.findFirst({where:{name:'private-unattached.txt'}})).ownerId,targetOwner.id);
+    assert.equal(targetDecrypt((await target.devSetting.findUnique({where:{key:'developer_openai_api_key'}})).value),'synthetic-api-secret');
+    const importedFolder=await target.cloudFolder.findFirst({include:{account:true,runs:true}});assert.equal(importedFolder.status,'paused');assert.equal(importedFolder.nextRunAt,null);assert.deepEqual(importedFolder.registry,folder.registry);assert.equal(targetDecrypt(importedFolder.account.tokens),'{"access_token":"fixture-token"}');assert.equal(importedFolder.runs.length,1);
     const instruction=await target.devSetting.findFirst({where:{key:{startsWith:'instruction:'}}});const content=JSON.parse(instruction.value);assert.equal(instruction.key,'instruction:'+content.id);assert.equal(await fs.readFile(content.filePath,'utf8'),'Synthetic media bytes');
    }
   }
   assert.equal(await source.meeting.count(),2);assert.equal(await target.meeting.count(),3);assert.equal(await target.organization.count(),2);
   const beforeFiles=await fs.readdir(path.join(targetRoot,'imports'));
   const failing={user:target.user,$transaction:fn=>target.$transaction(async tx=>{await fn(tx);throw Error('Simulated failure after inserts');},{timeout:120000})};
-  await assert.rejects(()=>importArchive(failing,opened[0],{storageRoot:targetRoot,ownerId:targetOwner.id,encryptSecret:encrypt}),/Simulated failure/);
+  await assert.rejects(()=>importArchive(failing,opened[0],{storageRoot:targetRoot,ownerId:targetOwner.id,encryptSecret:targetEncrypt}),/Simulated failure/);
   assert.equal(await target.meeting.count(),3);assert.equal(await target.organization.count(),2);assert.deepEqual(await fs.readdir(path.join(targetRoot,'imports')),beforeFiles);
   const app=express();app.use(express.json());
-  installArchiveTransfer({app,db:target,storageRoot:targetRoot,decryptSecret:decrypt,encryptSecret:encrypt,extractScript:script,protectedDev:(req,res,next)=>{req.developerAccess={ownerId:targetOwner.id};next();},ownerGuard:(req,res,next)=>req.headers['x-test-owner']==='yes'?next():res.status(403).json({error:'Owner required'})});
+  installArchiveTransfer({app,db:target,storageRoot:targetRoot,decryptSecret:targetDecrypt,encryptSecret:targetEncrypt,extractScript:script,protectedDev:(req,res,next)=>{req.developerAccess={ownerId:targetOwner.id};next();},ownerGuard:(req,res,next)=>req.headers['x-test-owner']==='yes'?next():res.status(403).json({error:'Owner required'})});
   const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});const endpoint='http://127.0.0.1:'+server.address().port;
   try{
    assert.equal((await fetch(endpoint+'/developer/archive/export',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
