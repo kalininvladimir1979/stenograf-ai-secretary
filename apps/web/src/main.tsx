@@ -241,8 +241,11 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
     }),
     [error, setError] = useState(""),
     [passwordVisible, setPasswordVisible] = useState(false);
+  const [submitting,setSubmitting]=useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(submitting)return;
+    setSubmitting(true);
     setError("");
     // Browser/password-manager autofill may not emit React's change event.
     // Read the actual controls when submitting; never trim the password.
@@ -266,7 +269,7 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
       onAuth(r.token);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
-    }
+    } finally { setSubmitting(false); }
   };
   return (
     <main className="login">
@@ -352,10 +355,10 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
               </label>
             </>
           )}{" "}
-          <p className="login-account-hint">{mode === "login" ? "Введите пароль аккаунта СтеноГРАФа. Пароль почты и пароль Dev-консоли здесь не используются." : "Задайте отдельный пароль для аккаунта СтеноГРАФа."}{["localhost", "127.0.0.1"].includes(window.location.hostname) && " Это локальная версия: её аккаунты хранятся отдельно от серверных."}</p>
+          <p className="login-account-hint">{mode === "login" ? "Введите пароль аккаунта СтеноГРАФа. Пароль почты и пароль Dev-консоли здесь не используются." : "Задайте отдельный пароль для аккаунта СтеноГРАФа."}{["localhost", "127.0.0.1"].includes(window.location.hostname) ? " Это локальная версия: её аккаунты хранятся отдельно от серверных." : " Это серверная версия: локальные аккаунты автоматически сюда не переносятся."} Если аккаунт в этой версии ещё не создан, выберите «Создать аккаунт».</p>
           {error && <p className="error" role="alert">{error}</p>}
-          <button className="primary">
-            {mode === "login" ? "Войти в пространство" : "Создать организацию"}
+          <button className="primary" disabled={submitting}>
+            {submitting ? "Проверяем…" : mode === "login" ? "Войти в пространство" : "Создать организацию"}
             <ArrowUpRight size={16} />
           </button>
         </form>
@@ -4231,16 +4234,18 @@ function App() {
     [demoMode, setDemoMode] = useState(false);
   const [demoConfig, setDemoConfig] = useState<DemoConfig>({ enabled: false, features: defaultDemoFeatures });
   const load = async (finishLoading = true) => {
+    const requestedToken=token();
     try {
       const x = await api<{ user: User; organizations: Membership[] }>(
         "/auth/me",
       );
+      if(token()!==requestedToken)return false;
       setUser(x.user);
       setMemberships(x.organizations);
       setCurrent((c) => x.organizations.find(item=>item.organization.id===c?.organization.id) || x.organizations[0] || null);
       return x;
     } catch {
-      localStorage.removeItem("secretary-token");
+      if(token()===requestedToken){localStorage.removeItem("secretary-token");setUser(null);setMemberships([]);setCurrent(null);}
       return false;
     } finally {
       if (finishLoading) setLoading(false);
@@ -4257,9 +4262,13 @@ function App() {
         setDemoConfig(demo);
         const explicitLogin = new URLSearchParams(location.search).get("login") === "1";
         if (initial && explicitLogin) localStorage.removeItem("secretary-token");
-        const restored = token() ? await load(false) : false;
+        const initialToken=token();
+        const restored = initialToken ? await load(false) : false;
         if (shouldStartPublicDemo({enabled:demo.enabled,publicAccess:demo.features.publicAccess,restored:!!restored,explicitLogin})) {
+          const beforeDemoToken=token();
+          if(beforeDemoToken&&beforeDemoToken!==initialToken)return;
           const session = await api<{ token: string }>("/auth/demo-session", { method: "POST" });
+          if(token()!==beforeDemoToken)return;
           localStorage.setItem("secretary-token", session.token);
           const workspace = await load(false);
           if (workspace) setCurrent(workspace.organizations[0] || null);
