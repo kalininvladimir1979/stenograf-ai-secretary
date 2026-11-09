@@ -124,7 +124,7 @@ export function installMultimodal(c:any) {
       else if(['audio','video'].includes(material.kind)){
         // ffprobe verifies actual container, rather than trusting a suffix or HTML content type.
         const {stdout:probe}=await execFileAsync('ffprobe',['-v','error','-show_entries','stream=codec_type','-of','json',file],{timeout:30000});
-        const streams=JSON.parse(probe).streams||[];if(!streams.some((s:any)=>s.codec_type==='audio'))throw Error('В файле не найдена аудиодорожка');if(material.kind==='video'&&!streams.some((s:any)=>s.codec_type==='video'))throw Error('Фактическое содержимое не является видеофайлом');
+        const streams=JSON.parse(probe).streams||[];if(!streams.some((s:any)=>s.codec_type==='audio'))throw Error('В файле не найдена аудиодорожка');if(material.kind==='video'&&!streams.some((s:any)=>s.codec_type==='video')){material.kind='audio';await db.material.update({where:{id:material.id},data:{kind:'audio'}});}
         await stage('Распознавание речи');
         let tracks=material.kind==='video'?await c.extractAudioLocally(file):[{id:'audio',label:'Аудиодорожка',path:file,selected:true}];
         for(const track of tracks)track.text=await transcribeLongAudio(track.path,material.organizationId);

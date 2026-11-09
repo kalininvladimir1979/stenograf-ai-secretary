@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser, sessions} from "./api";
 import KnowledgeTransfer from "./KnowledgeTransfer";
+import MeetingMaterials,{type MeetingMaterialsHandle} from "./MeetingMaterials";
 import CloudStorageCheck from "./CloudStorageCheck";
 import TranscriptView from "./TranscriptView";
 import {modelCatalogOrganizations,shouldStartPublicDemo,workspaceUrl,surfaceForPath,surfaceUrl,developerOwnerLoginUrl} from "./workspace-access";
@@ -55,7 +56,7 @@ import LocalPasswordReset from "./LocalPasswordReset";
 import WorkspaceSetup from "./WorkspaceSetup";
 import AdminInstructions,{InstructionsHelp} from "./Instructions";
 
-import ChatComposer,{useVoiceInput,transcribeVoice,VoiceMeter} from "./VoiceInput";
+import ChatComposer from "./VoiceInput";
 import {appendDictation} from "./voice-dictation";
 import ServerRemoval from "./ServerRemoval";
 import {AdminLink,Usage,ImportMaterial,CloudFolders,MainCloudConnections,DeveloperCloud,MaterialGallery,VersionPanel} from './CloudWorkspace';
@@ -1243,8 +1244,7 @@ function MeetingDetail({
     const saved = sessionStorage.getItem(`secretary-meeting-tab:${meetingId}`);
     return ["result", "transcript", "notes", "materials", "sources", "invite"].includes(saved || "") ? saved! : "result";
   };
-  const readMaterialMode = (meetingId: string): "append" | "replace" =>
-    sessionStorage.getItem(`secretary-material-mode:${meetingId}`) === "replace" ? "replace" : "append";
+  const materialsPanelRef=useRef<MeetingMaterialsHandle>(null);
   const [m, setM] = useState<any>(null),
     [tab, setTab] = useState(() => readTab(id)),
     [message, setMessage] = useState(""),
@@ -1255,42 +1255,9 @@ function MeetingDetail({
     [sources, setSources] = useState<any[]>([]),
     [editingTitle, setEditingTitle] = useState(false),
     [titleDraft, setTitleDraft] = useState(""),
-    [materialFile, setMaterialFile] = useState<File | null>(null),
-    [openMaterialsSection, setOpenMaterialsSection] = useState<"files" | "text" | null>(null),
-    [uploadOpen, setUploadOpen] = useState(false),
-    [materialDragging, setMaterialDragging] = useState(false),
-    [materialMode, setMaterialMode] = useState<"append" | "replace">(() => readMaterialMode(id)),
-    [materialBusy, setMaterialBusy] = useState(false),
-    [materialMessage, setMaterialMessage] = useState(""),
-    [meetingText, setMeetingText] = useState(""),
     [retryError, setRetryError] = useState(""),
-    [fileToDelete, setFileToDelete] = useState<{ id?: string; name: string } | null>(null),
-    [fileDeleteBusy, setFileDeleteBusy] = useState(false),
-    [fileDeleteError, setFileDeleteError] = useState(""),
     [busy, setBusy] = useState(false);
-  const materialInputRef = useRef<HTMLInputElement>(null);
-  const materialVoice=useVoiceInput(id+':'+tab+':'+openMaterialsSection,text=>setMeetingText(current=>appendDictation(current,text)),(blob,signal)=>transcribeVoice(id,blob,signal));
-  const {state:dictationState,seconds:dictationSeconds,level:dictationLevel,error:dictationError}=materialVoice;
-  const startDictation=materialVoice.start,stopDictation=()=>materialVoice.stop();
-  const changeTab = (next: string) => {materialVoice.cancel();sessionStorage.setItem(`secretary-meeting-tab:${id}`,next);setTab(next);};
-  const changeMaterialMode = (next: "append" | "replace") => {
-    sessionStorage.setItem(`secretary-material-mode:${id}`, next);
-    setMaterialMode(next);
-  };
-  const toggleMaterialsSection = (section: "files" | "text") => {
-    setOpenMaterialsSection((current) => current === section ? null : section);
-    if (section !== "files") setUploadOpen(false);
-  };
-  const selectMaterialFile = (file?: File) => {
-    if (!file) return;
-    if (!mediaFileKind(file)) {
-      setMaterialFile(null);
-      setMaterialMessage("Выберите аудио или видеофайл.");
-      return;
-    }
-    setMaterialFile(file);
-    setMaterialMessage("");
-  };
+  const changeTab=(next:string)=>{sessionStorage.setItem(`secretary-meeting-tab:${id}`,next);setTab(next);};
   const load = () =>
     api<any>(`/meetings/${id}`).then((x) => {
       setM(x);
@@ -1303,7 +1270,6 @@ function MeetingDetail({
   useEffect(() => {
     setTab(readTab(id));
     setOpenResultSection(null);
-    setMaterialMode(readMaterialMode(id));
     load();
   }, [id]);
   useEffect(() => {
@@ -1318,6 +1284,7 @@ function MeetingDetail({
   }, [id, m?.state]);
   if (!m) return <div className="loading">Открываем встречу…</div>;
   const save = async () => {
+    if(tab==='materials'){await materialsPanelRef.current?.save();return;}
     await api(`/meetings/${id}`, {
       method: "PUT",
       body: JSON.stringify({
@@ -1332,27 +1299,6 @@ function MeetingDetail({
     setEditingTitle(false);
     load();
   };
-  const uploadMaterial = async () => {
-    if (!materialFile) return;
-    setMaterialBusy(true);
-    setMaterialMessage("");
-    try {
-      const isVideo = mediaFileKind(materialFile) === "video";
-      const path = `/meetings/${id}/${isVideo ? "video" : "audio"}?mode=${materialMode}`;
-      if (isVideo) await video(path, materialFile);
-      else await audio(path, materialFile);
-      setMaterialFile(null);
-      setUploadOpen(false);
-      setMaterialMessage(materialMode === "replace"
-        ? "Новый файл принят. После обработки расшифровка и результат заменятся."
-        : "Файл принят. Расшифровка и результат обновятся после обработки.");
-      load();
-    } catch (error) {
-      setMaterialMessage(error instanceof Error ? error.message : "Не удалось загрузить файл.");
-    } finally {
-      setMaterialBusy(false);
-    }
-  };
   const retry = async () => {
     setBusy(true);
     setRetryError("");
@@ -1363,37 +1309,6 @@ function MeetingDetail({
       setRetryError(error instanceof Error ? error.message : "Не удалось повторить обработку.");
     } finally {
       setBusy(false);
-    }
-  };
-  const processMeetingText = async () => {
-    if (!meetingText.trim()) return;
-    setMaterialBusy(true);
-    setMaterialMessage("");
-    try {
-      await api(`/meetings/${id}/text`, { method: "POST", body: JSON.stringify({ text: meetingText.trim() }) });
-      setMeetingText("");
-      setMaterialMessage("Текст обработан. Проверьте результат и уточните недостающие сведения.");
-      changeTab("result");
-      load();
-    } catch (error) {
-      setMaterialMessage(error instanceof Error ? error.message : "Не удалось обработать текст встречи.");
-      load();
-    } finally {
-      setMaterialBusy(false);
-    }
-  };
-  const deleteStoredFile = async () => {
-    if (!fileToDelete) return;
-    setFileDeleteBusy(true);
-    setFileDeleteError("");
-    try {
-      await api(fileToDelete.id ? `/meetings/${id}/media-sources/${fileToDelete.id}/file` : `/meetings/${id}/audio`, { method: "DELETE" });
-      setFileToDelete(null);
-      await load();
-    } catch (error) {
-      setFileDeleteError(error instanceof Error ? error.message : "Не удалось удалить файл.");
-    } finally {
-      setFileDeleteBusy(false);
     }
   };
   const openOrganizationConnections = () => {
@@ -1413,7 +1328,7 @@ function MeetingDetail({
     URL.revokeObjectURL(anchor.href);
   };
   const regionUnavailable = /unsupported_country_region_territory|недоступен из региона/i.test(m.error || "");
-  const invalidAnalysis = /"code": "invalid_type"/.test(m.error || "");
+  const invalidAnalysis = /invalid_type|неполный анализ|неподдерживаемом формате/.test(m.error || "");
   const updateTask = async (
     taskId: string,
     payload: Record<string, unknown>,
@@ -1485,7 +1400,7 @@ function MeetingDetail({
         <div className="detail-head__actions" role="group" aria-label="Действия со встречей">
           {m.canEdit && !editingTitle && <button className="outline" onClick={() => { setEditingTitle(true); setTitleDraft(m.title); }}><Pencil size={15} /> Переименовать</button>}
           {editingTitle && <button className="outline" onClick={() => setEditingTitle(false)}><X size={15} /> Отмена</button>}
-          {m.canEdit && <button className="outline" onClick={() => changeTab("materials")}><Plus size={15} /> Добавить файл</button>}
+          {m.canEdit && <button className="outline" onClick={() => changeTab("materials")}><Plus size={15} /> Добавить материалы</button>}
           {m.canDelete && <button className="outline detail-delete" onClick={() => onDelete(m)}><Trash2 size={15} /> Удалить встречу</button>}
           <button className="outline" onClick={() => exportFile("md")}>
             <FileText size={15} />
@@ -1503,10 +1418,10 @@ function MeetingDetail({
       {m.state === "FAILED" && (
         <div className="detail-error-panel" role="alert">
           <strong>Обработка не завершилась</strong>
-          <p>{regionUnavailable ? "OpenAI отклонил расшифровку: сервис был недоступен из региона сервера. Если вы изменили маршрут обработки, повторите распознавание сохранённой аудиодорожки. Через прежний маршрут запрос снова завершится ошибкой." : invalidAnalysis ? "AI вернул неполный результат анализа. Проверьте выбранную модель и повторите обработку." : m.error || "Неизвестная ошибка."}</p>
+          <p>{regionUnavailable ? "OpenAI отклонил расшифровку: сервис был недоступен из региона сервера. Если вы изменили маршрут обработки, повторите распознавание сохранённой аудиодорожки. Через прежний маршрут запрос снова завершится ошибкой." : invalidAnalysis ? "AI не смог сформировать результат в нужном формате. Материалы сохранены. Повторите обработку или добавьте содержательные заметки." : m.error || "Неизвестная ошибка."}</p>
           {retryError && <p>{retryError}</p>}
-          {!m.hasTranscriptionKey && <p>Для расшифровки аудио нужен ключ OpenAI именно в настройках этой организации. Ключ разработчика используется только для диагностики.</p>}
-          {!m.canRetryFromSource && <p>Подготовленная аудиодорожка этой попытки не сохранилась. Откройте «Материалы» и загрузите запись повторно.</p>}
+          {!m.hasTranscriptionKey && <p>Для расшифровки аудио нужен ключ OpenAI именно в настройках этой организации. В демо источник ключа определяется настройкой «Использовать ключ платформы» в консоли.</p>}
+          {!m.canRetryFromSource && <p>В этой встрече пока нет материалов для анализа. Откройте «Материалы» и добавьте текст, файл или облачную ссылку.</p>}
           {regionUnavailable && <p>Также можно вставить готовую стенограмму во вкладке «Материалы» и обработать текст без распознавания аудио.</p>}
           <div>
             {m.canRetryFromSource && (m.hasTranscriptionKey || m.transcript?.text) && <button className="primary" onClick={retry} disabled={busy}><RefreshCw size={15} className={busy ? "spin" : ""} />{busy ? "Запускаем…" : regionUnavailable && !m.transcript?.text ? "Повторить распознавание" : "Повторить обработку"}</button>}
@@ -1645,7 +1560,7 @@ function MeetingDetail({
         </div>
       )}
       {tab==='result'&&<VersionPanel key={m.activeVersionId+'-'+m.processingStage} meetingId={id} reload={()=>void load()}/>}
-      {tab==='materials'&&<><ImportMaterial org={org} meetingId={id}/><MaterialGallery orgId={org.id} meetingId={id}/></>}
+
 
       {tab === "transcript" && (
         m.state === "PROCESSING" && !m.transcript?.text
@@ -1653,66 +1568,9 @@ function MeetingDetail({
           : <TranscriptView key={id} title={m.title} text={m.transcript?.text} createdAt={m.createdAt} canEdit={!!m.canEdit} onSave={async text=>{await api(`/meetings/${id}/transcript`,{method:'PUT',body:JSON.stringify({text})});setM((current:any)=>current?.id===id?({...current,transcript:{...current.transcript,text}}):current);}}/>
       )}
       {tab === "notes" && <Suspense fallback={<p role="status">Открываем конспект…</p>}><MeetingNotes key={id} meetingId={id} revision={m.updatedAt}/></Suspense>}
-      {tab === "materials" && (
-        <section className="meeting-materials">
-          <div className="meeting-materials__heading">
-            <h2>Материалы встречи</h2>
-            <p>Управляйте записями и добавляйте стенограмму или заметки текстом.</p>
-          </div>
-          <section className={`meeting-materials__section ${openMaterialsSection === "files" ? "open" : ""}`}>
-            <div className="meeting-materials__section-head">
-              <button type="button" className="meeting-materials__section-trigger" aria-expanded={openMaterialsSection === "files"} onClick={() => toggleMaterialsSection("files")}>
-                <span><strong>Загруженные файлы</strong><small>{fileCountLabel(sources.length || (m.hasStoredAudioFile ? 1 : 0))}</small></span><ChevronDown size={18} aria-hidden="true" />
-              </button>
-              {m.canEdit && <button type="button" className="meeting-materials__add" aria-label="Добавить файл" title="Добавить файл" aria-expanded={uploadOpen} onClick={() => { setOpenMaterialsSection("files"); setUploadOpen((current) => !current); }}><Plus size={19} /></button>}
-            </div>
-            {openMaterialsSection === "files" && <div className="meeting-materials__section-body">
-            <div className="meeting-materials__list">
-              {sources.length ? sources.map((source) => (
-                <div className="meeting-materials__item" key={source.id}>
-                  {source.kind === "video" ? <FileVideo size={18} /> : <FileAudio size={18} />}
-                  <span><strong>{displayFileName(source.name)}</strong><small>{source.kind === "video" ? "Видео" : "Аудио"} · {source.status === "file_deleted" ? "файл удалён, текст сохранён" : source.status === "ready" ? "обработано" : source.status === "failed" ? "ошибка обработки" : "обрабатывается"}</small></span>
-                  {m.canEdit && <button className="meeting-materials__rename" type="button" onClick={() => changeTab("sources")}>Переименовать</button>}
-                  {m.canEdit && source.status !== "file_deleted" && <button className="meeting-materials__delete" type="button" aria-label={`Удалить файл ${displayFileName(source.name)}`} title="Удалить файл" onClick={() => { setFileDeleteError(""); setFileToDelete({ id: source.id, name: displayFileName(source.name) }); }}><Trash2 size={16} /></button>}
-                </div>
-              )) : m.hasStoredAudioFile ? <div className="meeting-materials__item"><FileAudio size={18} /><span><strong>Сохранённая аудиозапись</strong><small>Файл существует; исходное имя не было сохранено в прежней версии</small></span>{m.canEdit && <button className="meeting-materials__delete" type="button" aria-label="Удалить сохранённую аудиозапись" title="Удалить файл" onClick={() => { setFileDeleteError(""); setFileToDelete({ name: "сохранённую аудиозапись" }); }}><Trash2 size={16} /></button>}</div> : <p className="meeting-materials__empty">Файлов пока нет. Нажмите «+», чтобы добавить запись.</p>}
-            </div>
-            {m.canEdit && uploadOpen && <div className="meeting-materials__form meeting-materials__upload">
-              <strong>Добавить аудио или видео</strong>
-              {!m.hasTranscriptionKey && <div className="meeting-materials__warning">Для распознавания записи добавьте OpenAI API-ключ в разделе «Подключения» админ-панели. <button className="outline" onClick={openOrganizationConnections}>Открыть настройки</button></div>}
-              <div className="meeting-materials__modes" role="radiogroup" aria-label="Как использовать файл">
-                <label><input type="radio" name="material-mode" checked={materialMode === "append"} onChange={() => changeMaterialMode("append")} /> Добавить к встрече</label>
-                <label><input type="radio" name="material-mode" checked={materialMode === "replace"} onChange={() => changeMaterialMode("replace")} /> Заменить материалы</label>
-              </div>
-              <p>{materialMode === "replace" ? "Новая расшифровка и результат заменят прежние. Старые файлы будут удалены после успешной обработки." : "Новая расшифровка дополнит текущую; результат встречи будет пересчитан."}</p>
-              <input ref={materialInputRef} className="meeting-materials__file-input" type="file" tabIndex={-1} aria-hidden="true" accept="audio/*,video/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.oga,.opus,.wma,.aiff,.aif,.amr,.caf,.alac,.mp4,.mov,.mkv,.avi,.webm,.mpeg,.mpg,.m4v,.wmv,.flv,.ts,.mts,.m2ts,.3gp,.ogv,.vob" onChange={(event) => selectMaterialFile(event.target.files?.[0])} />
-              <button type="button" className={`meeting-materials__drop ${materialDragging ? "dragging" : ""}`} onClick={() => materialInputRef.current?.click()} onDragOver={(event) => { event.preventDefault(); setMaterialDragging(true); }} onDragLeave={(event) => { event.preventDefault(); setMaterialDragging(false); }} onDrop={(event) => { event.preventDefault(); setMaterialDragging(false); selectMaterialFile(event.dataTransfer.files[0]); }}>
-                <Plus size={22} aria-hidden="true" /><span>{materialFile ? displayFileName(materialFile.name) : "Перетащите аудио или видео сюда"}</span><small>{materialFile ? "Нажмите, чтобы выбрать другой файл" : "или нажмите, чтобы выбрать файл"}</small>
-              </button>
-              <button className="primary" disabled={!materialFile || materialBusy || m.state === "PROCESSING" || !m.hasTranscriptionKey} onClick={uploadMaterial}>{materialBusy ? "Загружаем…" : materialMode === "replace" ? "Заменить и обработать" : "Добавить и обработать"}</button>
-            </div>}
-            {materialMessage && <p role="status" className="meeting-materials__message">{materialMessage}</p>}
-            </div>}
-          </section>
-          {m.canEdit && <section className={`meeting-materials__section ${openMaterialsSection === "text" ? "open" : ""}`}>
-            <div className="meeting-materials__section-head"><button type="button" className="meeting-materials__section-trigger" aria-expanded={openMaterialsSection === "text"} onClick={() => toggleMaterialsSection("text")}><span><strong>Стенограмма или заметки текстом</strong><small>Вставьте текст или продиктуйте</small></span><ChevronDown size={18} aria-hidden="true" /></button></div>
-            {openMaterialsSection === "text" && <div className="meeting-materials__form meeting-materials__text-form">
-              <p>Текст будет обработан без распознавания файла. Текущая расшифровка заменится после отправки.</p>
-              <textarea className="meeting-materials__text" value={meetingText} onChange={(event) => setMeetingText(event.target.value)} placeholder="Вставьте текст встречи…" />
-              <div className="meeting-materials__text-actions">
-                <button type="button" className={`meeting-materials__dictation ${dictationState === "recording" ? "recording" : ""}`} disabled={dictationState === "transcribing" || !m.hasTranscriptionKey} onClick={dictationState === "starting"?materialVoice.cancel:dictationState === "recording" ? stopDictation : startDictation} aria-label={dictationState === "recording" ? "Остановить диктовку" : "Добавить текст голосом"}>{dictationState === "recording" ? <Square size={15} /> : <Mic size={16} />}{dictationState === "recording" ? "Остановить запись" : dictationState === "transcribing" ? "Распознаём…" : dictationState === "starting"?"Отменить включение":"Добавить голосом"}</button>
-                <button className="primary" disabled={!meetingText.trim() || materialBusy || dictationState !== "idle"} onClick={processMeetingText}>Обработать текст</button>
-              </div>
-              {dictationState === "recording" && <div className="meeting-materials__voice-status"><VoiceMeter seconds={dictationSeconds} level={dictationLevel}/></div>}
-              {!m.hasTranscriptionKey && <p className="meeting-materials__warning">Для диктовки нужен ключ расшифровки организации. Текст можно вставить вручную.</p>}
-              {dictationError && <p className="meeting-materials__error" role="alert">{dictationError}</p>}
-              {materialMessage && <p role="status" className="meeting-materials__message">{materialMessage}</p>}
-            </div>}
-          </section>}
-        </section>
-      )}
+      {tab === 'materials' && <MeetingMaterials ref={materialsPanelRef} key={id} org={org} meeting={m} sources={sources} onChanged={load} onViewMeetings={onBack} onTranscript={()=>changeTab('transcript')}/>}
       {tab === "sources" && <section className="media-sources"><h3>Источники и синхронизация</h3><p>Каждый канал расшифрован отдельно. Сдвиг используется при сборке общей стенограммы.</p>{sources.map((source) => <article key={source.id}><label>Название источника<input value={displayFileName(source.name)} onChange={(event) => setSources(sources.map((item) => item.id === source.id ? { ...item, name: event.target.value } : item))} /></label><label>Сдвиг, секунды<input type="number" step="0.1" value={source.offsetMs / 1000} onChange={(event) => setSources(sources.map((item) => item.id === source.id ? { ...item, offsetMs: Math.round(Number(event.target.value) * 1000) } : item))} /></label><div className="source-tracks">{(source.tracks || []).map((track: any) => <label key={track.id}><input type="checkbox" checked={track.selected} onChange={(event) => setSources(sources.map((item) => item.id === source.id ? { ...item, tracks: item.tracks.map((current: any) => current.id === track.id ? { ...current, selected: event.target.checked } : current) } : item))} />{track.label}</label>)}</div><button className="outline" onClick={async () => { await api(`/meetings/${id}/media-sources/${source.id}`, { method: "PUT", body: JSON.stringify({ name: displayFileName(source.name), offsetMs: source.offsetMs, tracks: source.tracks }) }); load(); }}>Применить синхронизацию</button></article>)}</section>}
-      {fileToDelete && <ConfirmDelete title={`Удалить файл «${fileToDelete.name}»?`} description="Аудио или видео будет удалено с сервера. Уже полученная расшифровка и протокол останутся во встрече." busy={fileDeleteBusy} error={fileDeleteError} onCancel={() => setFileToDelete(null)} onConfirm={deleteStoredFile} />}
+
       {tab === "invite" && m.canManageInvites && (
         <Invite meetingId={id} invites={m.invites} onDone={load} />
       )}
@@ -2145,7 +2003,7 @@ function TourMeetingPreview({ taskEditor = false }: { taskEditor?: boolean }) {
     <button className="back" type="button">← Все встречи</button>
     <header className="detail-head detail-head--meeting">
       <div><p>Общий · Рабочая встреча</p><h1>План запуска проекта</h1></div>
-      <div className="detail-head__actions"><button className="outline" type="button"><Pencil size={15} /> Переименовать</button><button className="outline" type="button"><Plus size={15} /> Добавить файл</button><button className="primary" type="button">Сохранить изменения</button></div>
+      <div className="detail-head__actions"><button className="outline" type="button"><Pencil size={15} /> Переименовать</button><button className="outline" type="button"><Plus size={15} /> Добавить материалы</button><button className="primary" type="button">Сохранить изменения</button></div>
       <div className="detail-head__status"><span className="state ready">Готово</span></div>
     </header>
     <div className="tabs" data-tour-target="meeting-results">
@@ -2974,6 +2832,8 @@ function AdminMembers({ org }: { org: Org }) {
 }
 
 function AdminIntegrations({ organizationId, organizationName }: { organizationId: string; organizationName:string }) {
+  const [keyUsage,setKeyUsage]=useState<any>(null);
+  useEffect(()=>{void api('/ai/usage?organizationId='+organizationId).then(setKeyUsage).catch(()=>setKeyUsage(null));},[organizationId]);
   const [items, setItems] = useState<any[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [openGroup, setOpenGroup] = useState<"ai" | "email" | null>(() => new URLSearchParams(window.location.search).get("section") === "integrations" ? "ai" : null);
@@ -3075,6 +2935,7 @@ function AdminIntegrations({ organizationId, organizationName }: { organizationI
     <section className="integrations">
       <h2>Подключения организации</h2>
       <p role="status">Настройки пространства «{organizationName}». Сохранённый ключ применяется только к этому пространству.</p>
+      {keyUsage?.demo&&keyUsage.platformKeyEnabled&&<p className="cloud-key-location">Сейчас демо использует ключ платформы из консоли. Поле ниже хранит собственный ключ этого пространства; он применяется при выключенной настройке «Использовать ключ платформы».</p>}
       <p>
         Настройте только те сервисы, которые нужны вашей команде. Секреты не
         отображаются после сохранения и передаются только на сервере.
@@ -3842,7 +3703,7 @@ function DeveloperSecurity({ demoMode, onDemoModeChange }: { demoMode: boolean; 
       <div className="demo-mode"><div><h3>{savedDemoConfig?.enabled ? "Демо-режим включён" : "Демо-режим выключен"}</h3><p>{changingDemoMode ? "Сохраняем настройку на сервере…" : "При выключении действует обычный вход."}</p></div><button type="button" className={`demo-mode__switch ${demoConfig.enabled ? "is-on" : ""}`} role="switch" aria-checked={demoConfig.enabled} aria-label="Демо-режим" disabled={changingDemoMode || !savedDemoConfig} onClick={() => { const next = { ...demoConfig, enabled: !demoConfig.enabled }; void saveDemoMode(next); }}><span aria-hidden="true" /></button></div>
       <div className="demo-mode"><div><h3>Использовать ключ платформы</h3><p>В демо используется ключ OpenAI из раздела «Секреты API» этой консоли. Когда выключено — ключ из админки демо-пространства.</p>{savingPlatformKey && <p role="status">Сохраняем…</p>}</div><button type="button" className={`demo-mode__switch ${platformKeyEnabled ? "is-on" : ""}`} role="switch" aria-checked={platformKeyEnabled === true} aria-label="Использовать ключ платформы" disabled={savingPlatformKey || platformKeyEnabled === null || !savedDemoConfig} onClick={() => void togglePlatformKey()}><span aria-hidden="true" /></button></div>
       {platformKeyError && <p className="error" role="alert">{platformKeyError}</p>}
-      <div className="demo-mode"><div><h3>Количество встреч в демо-режиме</h3><p>Лимит добавленных встреч на демо-пространство браузера. Учебные примеры не учитываются; удаление встречи освобождает место. Расшифровка, иллюстрации и повторный анализ не расходуют дополнительные встречи. 0 — без ограничений.</p><label>Количество встреч<input type="number" min="0" max="2147483647" step="1" value={meetingLimit??''} disabled={meetingLimit===null||savingMeetingLimit} onChange={e=>{setMeetingLimit(e.target.value);setMeetingLimitMessage('');}}/></label><button type="button" className="outline" disabled={meetingLimit===null||savingMeetingLimit||!/^\d+$/.test(meetingLimit)} onClick={()=>void saveMeetingLimit()}>{savingMeetingLimit?'Сохраняем…':'Сохранить количество'}</button>{meetingLimitMessage&&<p role="status">{meetingLimitMessage}</p>}</div></div>
+      <div className="demo-mode demo-meeting-capacity"><div><h3>Количество встреч в демо-режиме</h3><p>Лимит добавленных встреч на демо-пространство браузера. Учебные примеры не учитываются; удаление встречи освобождает место. Расшифровка, иллюстрации и повторный анализ не расходуют дополнительные встречи. 0 — без ограничений.</p><label>Количество встреч<input type="number" min="0" max="2147483647" step="1" value={meetingLimit??''} disabled={meetingLimit===null||savingMeetingLimit} onChange={e=>{setMeetingLimit(e.target.value);setMeetingLimitMessage('');}}/></label><button type="button" className="outline" disabled={meetingLimit===null||savingMeetingLimit||!/^\d+$/.test(meetingLimit)} onClick={()=>void saveMeetingLimit()}>{savingMeetingLimit?'Сохраняем…':'Сохранить количество'}</button>{meetingLimitMessage&&<p role="status">{meetingLimitMessage}</p>}</div></div>
       <div className="demo-feature-list">{demoFeatureLabels.map(({ key, label, hint }) => <div className="demo-mode" key={key}><div><h3>{label}</h3><p>{key==='fullAccess'?'Без продуктовых ограничений. Лимит добавленных демо-встреч задаётся отдельно выше.':hint}</p>{key==='calendar'&&<div className="demo-calendar-default"><span>Схема по умолчанию</span><div className="collection-view-toggle" role="group" aria-label="Схема календаря по умолчанию">{calendarViewOptions.map(option=><button type="button" key={option.value} aria-pressed={(demoConfig.calendarView||'month')===option.value} className={(demoConfig.calendarView||'month')===option.value?'active':''} disabled={changingDemoMode||!savedDemoConfig} onClick={()=>void saveDemoMode({...demoConfig,calendarView:option.value})}>{option.label}</button>)}</div></div>}</div><button type="button" className={`demo-mode__switch ${demoConfig.features[key] ? "is-on" : ""}`} role="switch" aria-checked={demoConfig.features[key]} aria-label={label} disabled={changingDemoMode || !savedDemoConfig} onClick={() => { const next = { ...demoConfig, features: { ...demoConfig.features, [key]: !demoConfig.features[key] } }; void saveDemoMode(next); }}><span aria-hidden="true" /></button></div>)}</div>
       <div className="demo-settings__actions"><button type="button" className="primary" disabled={(!demoChanged && !pendingDemoConfig) || changingDemoMode} onClick={() => void saveDemoMode(pendingDemoConfig ?? demoConfig)}>{changingDemoMode ? "Сохраняем…" : "Повторить сохранение"}</button><span>{pendingDemoConfig ? "Изменение не сохранено на сервере" : demoChanged ? "Настройка ещё не сохранена" : "Настройки сохранены на сервере"}</span></div>
       {demoModeError && <p className="error" role="alert">{demoModeError}</p>}

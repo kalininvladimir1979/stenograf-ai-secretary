@@ -1,0 +1,19 @@
+.meeting-input { margin-top:24px; padding:26px; border:1px solid var(--line); background:var(--panel); }
+.meeting-input__heading,.meeting-input__stored>header { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; }
+.meeting-input__heading h2 { margin:8px 0 10px; }
+.meeting-input__heading p,.meeting-input__stored p { color:var(--muted); margin:6px 0 18px; }
+.meeting-input__saved { display:inline-flex; align-items:center; gap:6px; color:var(--success); white-space:nowrap; font-size:12px; }
+.meeting-input__tabs { display:flex; flex-wrap:wrap; margin:10px 0 24px; }
+.meeting-input__tabs button { display:flex; align-items:center; gap:7px; }
+.meeting-input__editor label { display:block; font-weight:600; margin-bottom:9px; }
+.meeting-input__editor textarea,.meeting-input__editor input { display:block; box-sizing:border-box; width:100%; background:var(--paper); border:1px solid var(--line); color:var(--ink); padding:14px; font:inherit; }
+.meeting-input__editor textarea { min-height:190px; line-height:1.65; resize:vertical; }
+.meeting-input .cloud-actions { align-items:center; gap:10px; flex-wrap:wrap; margin:16px 0; }
+.meeting-input__drop { display:flex; flex-direction:column; align-items:center; gap:10px; padding:28px; border:1px dashed var(--line); background:var(--paper); text-align:center; cursor:pointer; }
+.meeting-input__drop input { max-width:100%; margin-top:10px; }
+.meeting-input__pending { padding:0; list-style:none; }
+.meeting-input__pending li,.meeting-input__legacy { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid var(--line); }
+.meeting-input__notice { padding:13px 16px; background:var(--paper); border-left:3px solid var(--wine); line-height:1.6; }
+.meeting-input__stored { margin-top:30px; padding-top:22px; border-top:1px solid var(--line); }
+.meeting-input__stored .cloud-gallery { margin-top:10px; }
+@media(max-width:700px){.meeting-input{padding:16px}.meeting-input__heading,.meeting-input__stored>header{flex-direction:column}.meeting-input__saved{white-space:normal}.meeting-input__tabs{width:100%}.meeting-input__tabs button{flex:1 1 42%;justify-content:center}.meeting-input .cloud-actions>button{flex:1 1 auto}}

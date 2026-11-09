@@ -37,12 +37,24 @@ try{
  const deferred=await request('/meetings',{organizationId:org,departmentId:originalMeeting.departmentId,templateId:originalMeeting.templateId,title:'Материалы новой встречи',notes:'Контекст до загрузки файла',deferAnalysis:true},browsers[0],a.token);
  assert.equal(deferred.status,200);assert.equal(deferred.data.state,'DRAFT');assert.equal(deferred.data.transcript.text,'Контекст до загрузки файла');
  assert.equal(await db.analysisVersion.count({where:{meetingId:deferred.data.id}}),0);
+ const notesPath='/meetings/'+deferred.data.id+'/notes';
+ assert.equal((await request(notesPath,{text:'123 123 123'},browsers[0],a.token,'PUT')).status,200);
+ let savedMeeting=(await request('/meetings/'+deferred.data.id,null,browsers[0],a.token)).data;assert.equal(savedMeeting.notes,'123 123 123');assert.equal(savedMeeting.transcript.text,'123 123 123');assert.equal(savedMeeting.state,'DRAFT');
+ assert.equal((await request(notesPath,{text:'Foreign overwrite'},browsers[0],b.token,'PUT')).status,404);
+ await db.transcript.update({where:{meetingId:deferred.data.id},data:{source:'audio',text:'Сохранённая речь'}});
+ await request(notesPath,{text:'Новый контекст'},browsers[0],a.token,'PUT');savedMeeting=(await request('/meetings/'+deferred.data.id,null,browsers[0],a.token)).data;assert.equal(savedMeeting.notes,'Новый контекст');assert.equal(savedMeeting.transcript.text,'Сохранённая речь');
+
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],a.token)).data.meetingCount,1);
  const bad=await request('/materials/import',{organizationId:org,url:'https://127.0.0.1/private'},browsers[0],a.token);
  assert.equal(bad.status,400);
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],b.token)).data.meetingCount,1);
  const admin=(await request('/auth/demo-admin-session',{password:'1234'},browsers[0])).data;
  assert.equal((await request('/admin/access?organizationId='+org,null,browsers[0],admin.token)).data.allowed,true);
+ const keyPath='/admin/integrations/openai_api_key?organizationId='+org;
+ assert.equal((await request(keyPath,{value:' synthetic-fixture-key '},browsers[0],admin.token,'PUT')).status,200);
+ const savedSecret=await db.devSetting.findUniqueOrThrow({where:{key:'organization:'+org+':openai_api_key'}});assert.ok(savedSecret.value.startsWith('v1:'));assert.ok(!savedSecret.value.includes('synthetic-fixture-key'));
+ assert.equal((await request(keyPath,{value:''},browsers[0],admin.token,'PUT')).data.unchanged,true);assert.equal((await db.devSetting.findUniqueOrThrow({where:{key:savedSecret.key}})).value,savedSecret.value);
+
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],admin.token)).data.demoRole,'admin');
  const organizations=(await fetch(origin+'/developer/organizations',{headers:{'x-dev-password':'1234','x-demo-browser':browsers[0]}})).json();
  const choices=await organizations;
