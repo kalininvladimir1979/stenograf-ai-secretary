@@ -2903,6 +2903,9 @@ main {
 .publication-modal p { margin: 10px 0 20px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .publication-modal .publication-modal__error { padding: 10px 12px; border: 1px solid var(--danger); background: var(--canvas); color: var(--danger); }
 .publication-modal footer { display: flex; justify-content: flex-end; gap: 8px; }
+.release-mode { display: grid; gap: 8px; max-width: 460px; color: var(--ink); font-size: 13px; }
+.release-mode select { width: 100%; }
+.release-mode-note { max-width: 78ch; color: var(--muted); font-size: 12px; line-height: 1.65; }
 .workspace-signin-dialog { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; padding: 26px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); box-shadow: 0 20px 56px #0005; }
 .workspace-signin-dialog::backdrop { background: #11121199; backdrop-filter: blur(4px); }
 .workspace-signin-dialog .modal-close { float: right; display: grid; place-items: center; width: 30px; height: 30px; border: 0; background: transparent; color: var(--muted); }

@@ -3801,6 +3801,7 @@ function PublicationProfiles({ readOnlyDemo }: { readOnlyDemo: boolean }) {
   const [preflight, setPreflight] = useState<any>(null);
   const [preflighting, setPreflighting] = useState(false);
   const [confirmRelease, setConfirmRelease] = useState(false);
+  const [releaseMode, setReleaseMode] = useState("standard");
   const [releaseDialogError, setReleaseDialogError] = useState("");
   const [releasing, setReleasing] = useState(false);
   const [confirmRollback, setConfirmRollback] = useState(false);
@@ -3891,7 +3892,7 @@ function PublicationProfiles({ readOnlyDemo }: { readOnlyDemo: boolean }) {
     if (!selectedId) return;
     setPlanning(true); setMessage(""); setPlan(null);
     try {
-      setPlan(await dev(`/developer/publication/profiles/${selectedId}/plan`, { method: "POST" }));
+      setPlan(await dev(`/developer/publication/profiles/${selectedId}/plan`, { method: "POST", body: JSON.stringify({mode:releaseMode}) }));
     } catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось подготовить план."); }
     finally { setPlanning(false); }
   };
@@ -3917,7 +3918,7 @@ function PublicationProfiles({ readOnlyDemo }: { readOnlyDemo: boolean }) {
     if (!selectedId) return;
     setReleasing(true); setReleaseDialogError(""); setMessage("");
     try {
-      await dev(`/developer/publication/profiles/${selectedId}/release`, { method: "POST" });
+      await dev(`/developer/publication/profiles/${selectedId}/release`, { method: "POST", body: JSON.stringify({mode:releaseMode,confirmDowntime:releaseMode==='economy'}) });
       setConfirmRelease(false);
       setReleaseStatus((current: any) => ({ ...current, release: { status: "running", stage: "archive", startedAt: new Date().toISOString() } }));
       dev(`/developer/publication/profiles/${selectedId}/status`).then(setReleaseStatus).catch(() => {});
@@ -3994,6 +3995,8 @@ function PublicationProfiles({ readOnlyDemo }: { readOnlyDemo: boolean }) {
       </section>}
       {selected && !editing && !readOnlyDemo && <section className="release-plan">
         <div><h3>Подготовка выпуска</h3><p>Проверка не меняет сервер. Передача файлов и запуск требуют отдельного подтверждения.</p></div>
+        <label className="release-mode">Режим обновления<select value={releaseMode} disabled={planning || releaseStatus?.release?.status === 'running'} onChange={event=>{setReleaseMode(event.target.value);setPlan(null);setReleaseDialogError('');}}><option value="standard">Обычный — сборка до переключения</option><option value="economy">С остановкой — экономия места</option></select></label>
+        <p className="release-mode-note">{releaseMode==='economy'?'Web и API остановятся; их старые контейнеры и свободные образы удалятся до сборки новой версии. Сайт будет недоступен до её успешного запуска. При ошибке потребуется повторить выпуск или восстановить архив.':'Старая версия продолжает работать во время сборки. При переключении возможен краткий перерыв; свободные старые образы удаляются после проверки новой версии.'} База, записи и секреты сохраняются. После успешного выпуска остаются один архив кода и два дампа БД. Общий кеш Docker не очищается. Для передачи архива, резервных копий и сборки всё равно нужно свободное место.</p>
         <button className="primary" disabled={planning} onClick={preparePlan}>{planning ? <RefreshCw className="spin" size={16} /> : <CheckCircle2 size={16} />}{planning ? "Проверяем…" : "Подготовить выпуск"}</button>
         {releaseStatus?.release && <ReleaseProgress release={releaseStatus.release} />}
         {releaseStatus?.release?.status === "succeeded" && releaseStatus.release.previousServer?.verifiedManifest && releaseStatus.release.rollbackHash && <div className="publication-rollback"><span>Предыдущий проверенный архив доступен. Данные БД сохраняются; откат заблокируется при изменённой схеме.</span><button className="outline" onClick={() => setConfirmRollback(true)}>Откатить версию</button></div>}
@@ -4004,7 +4007,7 @@ function PublicationProfiles({ readOnlyDemo }: { readOnlyDemo: boolean }) {
       </section>}
       {message && <p className={message.includes("сохран") || message.includes("удалён") ? "success" : "error"}>{message}</p>}
       {deleting && <div className="publication-modal" role="dialog" aria-modal="true" aria-labelledby="delete-profile-title"><div><h3 id="delete-profile-title">Удалить профиль «{deleting.name}»?</h3><p>Будут удалены параметры выпуска и зашифрованный SSH-секрет. Уже развёрнутые сервисы не изменятся.</p><footer><button className="outline" autoFocus onClick={() => setDeleting(null)}>Отмена</button><button className="danger-button" onClick={remove}><Trash2 size={16} />Удалить профиль</button></footer></div></div>}
-      {confirmRelease && selected && <div className="publication-modal" role="dialog" aria-modal="true" aria-labelledby="release-confirm-title"><div><button className="modal-close" disabled={releasing} onClick={() => setConfirmRelease(false)} aria-label="Закрыть"><X size={18} /></button><small>ФАКТИЧЕСКИЙ ВЫПУСК</small><h3 id="release-confirm-title">Опубликовать «{selected.name}»?</h3><p>Worker передаст архив по SSH, развернёт изолированный Compose-проект, сверит схему БД без удаления данных и проверит публичный health-check. Другие приложения на VPS не перезапускаются.</p>{releaseDialogError && <p className="publication-modal__error" role="alert">{releaseDialogError}</p>}<footer><button className="outline" autoFocus disabled={releasing} onClick={() => setConfirmRelease(false)}>Отмена</button><button className="primary" disabled={releasing} onClick={startRelease}><Rocket size={16} />{releasing ? "Запускаем…" : "Запустить выпуск"}</button></footer></div></div>}
+      {confirmRelease && selected && <div className="publication-modal" role="dialog" aria-modal="true" aria-labelledby="release-confirm-title"><div><button className="modal-close" disabled={releasing} onClick={() => setConfirmRelease(false)} aria-label="Закрыть"><X size={18} /></button><small>ФАКТИЧЕСКИЙ ВЫПУСК</small><h3 id="release-confirm-title">Опубликовать «{selected.name}»?</h3><p>{releaseMode==='economy'?'С остановкой: после создания резервных копий web/API и их свободные старые образы будут удалены до сборки. Пауза продлится до успешного запуска. При ошибке сайт останется недоступен до повторного выпуска или восстановления.':'Обычный режим: сборка выполняется до переключения приложения. При переключении возможен краткий перерыв.'} База, записи и секреты сохраняются; соседние приложения не перезапускаются. После успешной проверки будут удалены старые автоматически созданные копии: останутся один архив кода и два последних дампа БД. Общий кеш Docker сохраняется.</p>{releaseDialogError && <p className="publication-modal__error" role="alert">{releaseDialogError}</p>}<footer><button className="outline" autoFocus disabled={releasing} onClick={() => setConfirmRelease(false)}>Отмена</button><button className="primary" disabled={releasing} onClick={startRelease}><Rocket size={16} />{releasing ? "Запускаем…" : releaseMode==='economy' ? "Остановить и обновить" : "Запустить выпуск"}</button></footer></div></div>}
       {confirmRollback && selected && <div className="publication-modal" role="dialog" aria-modal="true" aria-labelledby="rollback-confirm-title"><div><button className="modal-close" onClick={() => setConfirmRollback(false)} aria-label="Закрыть"><X size={18} /></button><small>ОТКАТ ВЕРСИИ</small><h3 id="rollback-confirm-title">Вернуть предыдущую версию «{selected.name}»?</h3><p>Worker проверит архив и совместимость схемы БД, затем восстановит файлы и контейнеры только этого приложения. Данные БД не откатываются.</p><footer><button className="outline" autoFocus onClick={() => setConfirmRollback(false)}>Отмена</button><button className="primary" disabled={rollingBack} onClick={startRollback}>{rollingBack ? "Запускаем…" : "Подтвердить откат"}</button></footer></div></div>}
     </section>
   );

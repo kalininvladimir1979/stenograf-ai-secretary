@@ -1,6 +1,7 @@
 // @ts-nocheck
 import "dotenv/config";
 import {publicationStatus} from "./publication-status.js";
+import {releaseMode,prepareMaintenance,finishMaintenance,type ReleaseMode} from "./release-maintenance.js";
 import {installInstructions} from "./instructions.js";
 import express, {
   type Request,
@@ -1922,18 +1923,19 @@ async function verifyPublishedRoutes(profile: any) {
   await fetchVerified(`${base}api/demo-mode`, "Публичное API режима доступа", async (response) => response.ok && typeof (await response.json() as any).enabled === "boolean");
   return "Рабочее пространство, админ-панель, Dev-консоль и API режима доступа отвечают.\n";
 }
-async function publishRelease(profile: any) {
+async function publishRelease(profile: any, mode: ReleaseMode = 'standard') {
   const previous = await readReleaseState(profile.id);
-  const state: any = { status: "running", stage: "archive", stages: releaseStages, startedAt: new Date().toISOString(), server: previous?.server || null, rollbackArchive: previous?.rollbackArchive || null, log: "" };
+  const state: any = { status: "running", mode, stage: "archive", stages: releaseStages, startedAt: new Date().toISOString(), server: previous?.server || null, rollbackArchive: previous?.rollbackArchive || null, log: "" };
   const root = releaseRoot;
   const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "secretary-release-"));
   const manifest = path.join(workdir, "release-manifest.sha256");
   const knownHosts = path.join(workdir, "known_hosts");
+  let cleanupRemoteArchive = "", cleanupSshSecret = "";
   try {
     const snapshot = await localReleaseSnapshot();
     state.local = snapshot;
     const archive = path.join(workdir, `release-${snapshot.hash.slice(0, 12)}.tgz`);
-    const remoteArchive = `/tmp/stenograf-${snapshot.hash.slice(0, 12)}.tgz`;
+    const remoteArchive = `/tmp/stenograf-${randomUUID()}.tgz`;
     await writeReleaseState(profile.id, state);
     const files = await collectReleaseFiles();
     const checksums = await Promise.all(files.map(async (file) => `${createHash("sha256").update(await fs.readFile(path.join(root, file))).digest("hex")}  ${file}`));
@@ -1948,23 +1950,30 @@ async function publishRelease(profile: any) {
     const printed = await execFileAsync("ssh-keygen", ["-lf", knownHosts, "-E", "sha256"], { timeout: 10_000 });
     if (!printed.stdout.includes(fingerprintSetting.value)) throw new Error("Fingerprint сервера не совпадает с подтверждённым.");
     const secret = decryptPublicationSecret(profile.secretCiphertext);
+    cleanupRemoteArchive = remoteArchive; cleanupSshSecret = secret;
     state.stage = "transfer"; state.log = "Архив создан и передаётся на VPS.\n"; await writeReleaseState(profile.id, state);
     await execFileAsync("sshpass", ["-e", "scp", "-o", "UserKnownHostsFile=" + knownHosts, "-o", "StrictHostKeyChecking=yes", "-P", String(profile.sshPort), archive, `${profile.sshUser}@${profile.host}:${remoteArchive}`], { env: { ...process.env, SSHPASS: secret }, timeout: 120_000, maxBuffer: 64 * 1024 });
     state.stage = "deploy"; state.log += "Архив передан; запускается изолированный Compose-проект.\n"; await writeReleaseState(profile.id, state);
     const publicHealthUrl = new URL(profile.healthPath, new URL(profile.publicUrl).origin).toString();
     const projectName = path.basename(profile.installPath).replace(/[^a-zA-Z0-9_-]/g, "_") || "stenograf";
     const remoteScript = [
-      "set -eu",
+      "set -euo pipefail",
       `install=${shellQuote(profile.installPath)}`,
       `archive=${shellQuote(remoteArchive)}`,
+      `project=${shellQuote(projectName)}`,
       `expected_archive_hash=${shellQuote(archiveHash)}`,
+      'trap \'rm -f "$archive"\' EXIT',
+      'command -v python3 >/dev/null || { echo RELEASE_ERROR=python3_required_for_safe_retention; exit 44; }',
       "stamp=$(date +%Y%m%d%H%M%S)",
+      'rollback_archive=""',
       "mkdir -p \"$install/.release\"",
-      `if [ -f "$install/deploy/compose.production.yml" ] && [ -s "$install/.env" ]; then docker compose --env-file "$install/.env" -f "$install/deploy/compose.production.yml" -p ${shellQuote(projectName)} exec -T --interactive=false postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' < /dev/null > "$install/.release/database-before-$stamp.sql"; test -s "$install/.release/database-before-$stamp.sql"; chmod 600 "$install/.release/database-before-$stamp.sql"; fi`,
+      `if [ -f "$install/deploy/compose.production.yml" ] && [ -s "$install/.env" ]; then docker compose --env-file "$install/.env" -f "$install/deploy/compose.production.yml" -p ${shellQuote(projectName)} exec -T --interactive=false postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' < /dev/null | gzip > "$install/.release/database-before-$stamp.sql.gz"; gzip -t "$install/.release/database-before-$stamp.sql.gz"; chmod 600 "$install/.release/database-before-$stamp.sql.gz"; fi`,
       "echo \"$expected_archive_hash  $archive\" | sha256sum -c - >/dev/null",
       "mkdir -p \"$install/.release\"",
-      "if [ -f \"$install/deploy/compose.production.yml\" ]; then tar -C \"$install\" --exclude=.env --exclude=node_modules --exclude=storage --exclude=.release -czf \"$install/.release/before-$stamp.tgz\" .; echo \"ROLLBACK_ARCHIVE=$install/.release/before-$stamp.tgz\"; echo \"ROLLBACK_HASH=$(sha256sum \"$install/.release/before-$stamp.tgz\" | cut -d' ' -f1)\"; fi",
-      "rm -rf \"$install/apps/api/src\" \"$install/apps/api/prisma\" \"$install/apps/api/scripts\" \"$install/apps/web/src\" \"$install/apps/web/public\" \"$install/deploy\"",
+      "if [ -f \"$install/deploy/compose.production.yml\" ]; then rollback_archive=\"$install/.release/before-$stamp.tgz\"; tar -C \"$install\" --exclude=.env --exclude=node_modules --exclude=storage --exclude=.release -czf \"$rollback_archive\" .; tar -tzf \"$rollback_archive\" >/dev/null; echo \"ROLLBACK_ARCHIVE=$rollback_archive\"; echo \"ROLLBACK_HASH=$(sha256sum \"$rollback_archive\" | cut -d' ' -f1)\"; fi",
+      prepareMaintenance(mode),
+      "rm -rf \"$install/apps/api/src\" \"$install/apps/api/shared\" \"$install/apps/api/prisma\" \"$install/apps/api/scripts\" \"$install/apps/web/src\" \"$install/apps/web/public\" \"$install/deploy\"",
+      ...(mode === 'economy' ? ['rm -rf "$install/apps/api/dist" "$install/apps/web/dist" "$install/node_modules" "$install/apps/api/node_modules" "$install/apps/web/node_modules"'] : []),
       "tar -xzf \"$archive\" -C \"$install\"",
       "rm -f \"$archive\"",
       "cd \"$install\"",
@@ -1989,6 +1998,7 @@ async function publishRelease(profile: any) {
       "for attempt in $(seq 1 12); do curl -fsS --max-time 5 http://127.0.0.1:18026/api/health >/dev/null && break; [ \"$attempt\" = 12 ] && exit 42; sleep 3; done",
       `for attempt in $(seq 1 12); do curl -fsS --max-time 5 ${shellQuote(publicHealthUrl)} >/dev/null && break; [ "$attempt" = 12 ] && exit 43; sleep 3; done`,
       "echo PUBLIC_HEALTH=200",
+      finishMaintenance(),
     ].join("\n");
     const remoteCommand = `echo ${Buffer.from(remoteScript).toString("base64")} | base64 -d | bash`;
     const deployed = await execFileAsync("sshpass", ["-e", "ssh", "-o", "UserKnownHostsFile=" + knownHosts, "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=12", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=40", "-p", String(profile.sshPort), `${profile.sshUser}@${profile.host}`, remoteCommand], { env: { ...process.env, SSHPASS: secret }, timeout: 900_000, maxBuffer: 4 * 1024 * 1024 });
@@ -2000,12 +2010,24 @@ async function publishRelease(profile: any) {
     const rollbackArchive = deployed.stdout.match(/ROLLBACK_ARCHIVE=(.+)/)?.[1]?.trim() || null;
     const rollbackHash = deployed.stdout.match(/ROLLBACK_HASH=([a-f0-9]{64})/)?.[1] || null;
     await writeReleaseState(profile.id, { ...state, status: "succeeded", finishedAt: new Date().toISOString(), rollbackArchive, rollbackHash, previousServer: state.server, server: { ...snapshot, verifiedManifest: true }, log: safeReleaseLog(state.log + verified.output + routesResult) });
-    await audit(undefined, undefined, "publication.released", "PublicationProfile", profile.id, { hash: snapshot.hash, environment: profile.environment, rollbackArchive });
+    await audit(undefined, undefined, "publication.released", "PublicationProfile", profile.id, { hash: snapshot.hash, mode, environment: profile.environment, rollbackArchive });
   } catch (error) {
     const detail = releaseErrorDetail(error);
-    await writeReleaseState(profile.id, { ...state, status: "failed", finishedAt: new Date().toISOString(), error: detail, log: safeReleaseLog(state.log + detail) });
+    await writeReleaseState(profile.id, { ...state, status: "failed", finishedAt: new Date().toISOString(), error: detail, log: safeReleaseLog(state.log + detail + (mode === 'economy' ? '\nРежим с остановкой: web/API могут быть недоступны. БД и файлы сохранены. Повторите выпуск после устранения причины либо восстановите архив кода.' : '')) });
     await audit(undefined, undefined, "publication.failed", "PublicationProfile", profile.id, { stage: state.stage, error: detail });
-  } finally { await fs.rm(workdir, { recursive: true, force: true }); }
+  } finally {
+    // Also clean up an interrupted SCP upload; only this attempt's unique path.
+    if (cleanupRemoteArchive && cleanupSshSecret) {
+      try { await execFileAsync("sshpass", ["-e", "ssh", "-o", "UserKnownHostsFile=" + knownHosts, "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8", "-p", String(profile.sshPort), `${profile.sshUser}@${profile.host}`, `rm -f -- ${shellQuote(cleanupRemoteArchive)}`], {env:{...process.env,SSHPASS:cleanupSshSecret},timeout:15_000,maxBuffer:4096}); }
+      catch {
+        try {
+          const saved = await readReleaseState(profile.id);
+          if (saved) await writeReleaseState(profile.id,{...saved,log:safeReleaseLog((saved.log||'')+'\nНе удалось подтвердить удаление временного архива передачи: сервер недоступен. Требуется проверка /tmp после восстановления связи.')});
+        } catch { /* A failed cleanup must not crash the API. */ }
+      }
+    }
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
 }
 async function rollbackRelease(profile: any, saved: any) {
   const state: any = { ...saved, action: "rollback", status: "running", stage: "archive", startedAt: new Date().toISOString(), log: "Проверяем архив предыдущей версии.\n" };
@@ -2887,6 +2909,8 @@ app.post("/developer/publication/profiles/:id/preflight", protectedDev, protecte
   }
 });
 app.post("/developer/publication/profiles/:id/plan", protectedDev, protectedPublicationWrite, async (req, res) => {
+  let mode: ReleaseMode;
+  try { mode = releaseMode(req.body?.mode); } catch (error) { return res.status(400).json({error:(error as Error).message}); }
   const profile = await db.publicationProfile.findUnique({ where: { id: req.params.id } });
   if (!profile) return res.status(404).json({ error: "Профиль публикации не найден" });
   if (!profile.secretCiphertext) return res.status(400).json({ error: "Добавьте и сохраните SSH-пароль или ключ в профиле перед подготовкой плана." });
@@ -2903,6 +2927,7 @@ app.post("/developer/publication/profiles/:id/plan", protectedDev, protectedPubl
   const comparison = server ? (server.hash === local.hash ? "synchronized" : "changed") : "unknown";
   res.json({
     status: "preflight_completed",
+    mode,
     targetUrl: profile.publicUrl,
     local,
     comparison,
@@ -2912,20 +2937,25 @@ app.post("/developer/publication/profiles/:id/plan", protectedDev, protectedPubl
       { name: "Снимок локального состава", detail: `${local.files} разрешённых файлов, ${(local.bytes / 1024).toFixed(1)} КБ; секреты, загрузки, кэши и сборка исключены.` },
       { name: "Предзапуск VPS", detail: "Защищённый read-only SSH выполнен: проверены Docker Compose, Nginx, место и текущий health-check." },
       { name: "Изолированный стек", detail: `Отдельный Compose-проект в ${profile.installPath}; соседние сервисы не перезапускаются.` },
+      { name: mode === 'economy' ? "Пауза и освобождение места" : "Замена работающей версии", detail: mode === 'economy' ? "После проверки архива и создания резервных копий остановятся только web/API. Их контейнеры и неиспользуемые образы будут удалены до сборки новой версии. БД, загрузки, секреты и общий кеш Docker сохраняются. Пауза длится до успешного запуска; при ошибке потребуется повторный выпуск или восстановление." : "Старая версия работает во время сборки; при переключении возможен краткий перерыв. Старые неиспользуемые образы приложения удаляются после успешного запуска." },
       { name: "Схема БД и health-check", detail: `Prisma сверит схему без удаления данных, затем будет проверен ${profile.healthPath} на целевом сервисе.` },
       { name: "Публичная проверка", detail: `После HTTPS-прокси будет проверен адрес ${profile.publicUrl}.` },
+      { name: "Хранение резервных копий", detail: "Только после успешных health-check остаются один архив кода для отката и два последних дампа БД. Более старые автоматически созданные копии удаляются. Произвольные архивы владельца и Docker-тома не затрагиваются. Общий кеш сборки не очищается." },
     ],
     note: comparison === "synchronized" ? "VPS уже содержит текущий подтверждённый снимок. Повторный выпуск возможен." : comparison === "changed" ? "Локальный состав изменился после последнего подтверждённого выпуска." : "Предзапуск VPS завершён. Сравнение исходного кода появится после первого подтверждённого выпуска.",
   });
 });
 app.post("/developer/publication/profiles/:id/release", protectedDev, protectedPublicationWrite, async (req, res) => {
+  let mode: ReleaseMode;
+  try { mode = releaseMode(req.body?.mode); } catch (error) { return res.status(400).json({error:(error as Error).message}); }
+  if (mode === 'economy' && req.body?.confirmDowntime !== true) return res.status(400).json({error:"Подтвердите остановку web/API и удаление старых образов приложения в окне публикации."});
   const profile = await db.publicationProfile.findUnique({ where: { id: req.params.id } });
   if (!profile) return res.status(404).json({ error: "Профиль публикации не найден" });
   if (!profile.secretCiphertext) return res.status(400).json({ error: "Для выпуска нужен сохранённый SSH-секрет." });
   const current = await readReleaseState(profile.id);
   if (current?.status === "running") return res.status(409).json({ error: "Выпуск уже выполняется." });
   await writeReleaseState(profile.id, { status: "running", stage: "archive", startedAt: new Date().toISOString(), server: current?.server || null, rollbackArchive: current?.rollbackArchive || null, log: "Подготавливаем архив выпуска." });
-  void publishRelease(profile);
+  void publishRelease(profile, mode);
   res.status(202).json({ status: "running", message: "Выпуск запущен. Статус обновляется автоматически." });
 });
 app.post("/developer/publication/profiles/:id/rollback", protectedDev, protectedPublicationWrite, async (req, res) => {
