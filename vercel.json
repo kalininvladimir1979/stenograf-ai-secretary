@@ -4,6 +4,8 @@
   "buildCommand": "npm run build -w @secretary/web",
   "outputDirectory": "apps/web/dist",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://app.neurozavod.online/ai-sekretar261026/api/:path*" }
+    { "source": "/api/:path*", "destination": "https://app.neurozavod.online/ai-sekretar261026/api/:path*" },
+    { "source": "/adminvk", "destination": "/index.html" },
+    { "source": "/dev", "destination": "/index.html" }
   ]
 }

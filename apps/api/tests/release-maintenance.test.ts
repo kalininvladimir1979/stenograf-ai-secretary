@@ -22,6 +22,7 @@ esac
  }finally{await rm(root,{recursive:true,force:true});}
 }
 test('release mode rejects unknown input before starting a deployment',()=>{assert.equal(releaseMode(undefined),'standard');assert.equal(releaseMode('economy'),'economy');assert.throws(()=>releaseMode('prune-all'));});
+test('backup retention requires explicit confirmation from API callers',()=>{assert.doesNotMatch(finishMaintenance(false),/file.unlink|RELEASE_RETENTION\x27/);assert.match(finishMaintenance(false),/preserved_without_confirmation/);});
 test('economy stops only application services, preserves shared images and never removes volumes',()=>fixture(async(root,env)=>{
  execFileSync('bash',['-eu','-c',`install="$FIXTURE_ROOT"; project=fixture; ${prepareMaintenance('economy')}`],{env:{...env,FIXTURE_ROOT:root}});
  const log=await readFile(path.join(root,'docker.log'),'utf8');

@@ -38,9 +38,10 @@ function removeUnusedApplicationImages(): string {
 
 // Called only after both local and public health checks pass. Pattern matching
 // is restricted to generated release backups, never arbitrary files or volumes.
-export function finishMaintenance(): string {
+export function finishMaintenance(retainBackups=true): string {
   return [
     removeUnusedApplicationImages(),
+    ...(retainBackups ? [
     'python3 - "$install/.release" "$rollback_archive" <<\'RELEASE_RETENTION\'',
     'import pathlib,re,sys',
     'root=pathlib.Path(sys.argv[1]).resolve(); keep=pathlib.Path(sys.argv[2]).resolve() if sys.argv[2] else None',
@@ -55,5 +56,6 @@ export function finishMaintenance(): string {
     'for file in sorted(database,key=lambda f:f.name,reverse=True)[2:]: file.unlink()',
     'print("RELEASE_RETENTION=one_code_archive_two_database_dumps")',
     'RELEASE_RETENTION',
+    ] : ['echo RELEASE_RETENTION=preserved_without_confirmation']),
   ].join('\n');
 }

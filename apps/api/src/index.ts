@@ -2,6 +2,7 @@
 import "dotenv/config";
 import {publicationStatus} from "./publication-status.js";
 import {releaseMode,prepareMaintenance,finishMaintenance,type ReleaseMode} from "./release-maintenance.js";
+import {installLocalPasswordReset} from "./local-password-reset.js";
 import {installInstructions} from "./instructions.js";
 import express, {
   type Request,
@@ -87,6 +88,7 @@ const execFileAsync = promisify(execFile);
 const maxTranscriptionBytes = 24 * 1024 * 1024;
 app.use(cors());
 app.use(express.json({ limit: "40mb" }));
+installLocalPasswordReset(app,db);
 app.use((req,res,next)=>aiContext.run({operationId:randomUUID()},next));
 app.use("/admin", async (req, res, next) => {
   try {
@@ -1917,13 +1919,13 @@ async function verifyPublishedRoutes(profile: any) {
     }
     throw new Error(`${label} не отвечает корректно после трёх попыток: ${reason}.`);
   };
-  for (const surface of ["", "?surface=admin", "?surface=dev"]) {
+  for (const surface of ["", "adminvk", "dev"]) {
     await fetchVerified(`${base}${surface}`, `Публичная страница ${surface || "рабочего пространства"}`, async (response) => response.ok && (await response.text()).includes('id="root"'));
   }
   await fetchVerified(`${base}api/demo-mode`, "Публичное API режима доступа", async (response) => response.ok && typeof (await response.json() as any).enabled === "boolean");
   return "Рабочее пространство, админ-панель, Dev-консоль и API режима доступа отвечают.\n";
 }
-async function publishRelease(profile: any, mode: ReleaseMode = 'standard') {
+async function publishRelease(profile: any, mode: ReleaseMode = 'standard', retainBackups=false) {
   const previous = await readReleaseState(profile.id);
   const state: any = { status: "running", mode, stage: "archive", stages: releaseStages, startedAt: new Date().toISOString(), server: previous?.server || null, rollbackArchive: previous?.rollbackArchive || null, log: "" };
   const root = releaseRoot;
@@ -1998,7 +2000,7 @@ async function publishRelease(profile: any, mode: ReleaseMode = 'standard') {
       "for attempt in $(seq 1 12); do curl -fsS --max-time 5 http://127.0.0.1:18026/api/health >/dev/null && break; [ \"$attempt\" = 12 ] && exit 42; sleep 3; done",
       `for attempt in $(seq 1 12); do curl -fsS --max-time 5 ${shellQuote(publicHealthUrl)} >/dev/null && break; [ "$attempt" = 12 ] && exit 43; sleep 3; done`,
       "echo PUBLIC_HEALTH=200",
-      finishMaintenance(),
+      finishMaintenance(retainBackups),
     ].join("\n");
     const remoteCommand = `echo ${Buffer.from(remoteScript).toString("base64")} | base64 -d | bash`;
     const deployed = await execFileAsync("sshpass", ["-e", "ssh", "-o", "UserKnownHostsFile=" + knownHosts, "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=12", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=40", "-p", String(profile.sshPort), `${profile.sshUser}@${profile.host}`, remoteCommand], { env: { ...process.env, SSHPASS: secret }, timeout: 900_000, maxBuffer: 4 * 1024 * 1024 });
@@ -2955,7 +2957,7 @@ app.post("/developer/publication/profiles/:id/release", protectedDev, protectedP
   const current = await readReleaseState(profile.id);
   if (current?.status === "running") return res.status(409).json({ error: "Выпуск уже выполняется." });
   await writeReleaseState(profile.id, { status: "running", stage: "archive", startedAt: new Date().toISOString(), server: current?.server || null, rollbackArchive: current?.rollbackArchive || null, log: "Подготавливаем архив выпуска." });
-  void publishRelease(profile, mode);
+  void publishRelease(profile, mode, req.body?.confirmRetention === true);
   res.status(202).json({ status: "running", message: "Выпуск запущен. Статус обновляется автоматически." });
 });
 app.post("/developer/publication/profiles/:id/rollback", protectedDev, protectedPublicationWrite, async (req, res) => {

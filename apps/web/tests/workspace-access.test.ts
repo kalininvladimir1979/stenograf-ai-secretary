@@ -1,5 +1,8 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {modelCatalogOrganizations,shouldStartPublicDemo} from '../src/workspace-access';
+import {modelCatalogOrganizations,shouldStartPublicDemo,surfaceForPath} from '../src/workspace-access';
+test('admin and developer paths work at root and below the production base',()=>{
+ assert.equal(surfaceForPath('/adminvk'),'admin');assert.equal(surfaceForPath('/dev/'),'dev');assert.equal(surfaceForPath('/ai-sekretar261026/adminvk','/ai-sekretar261026/'),'admin');assert.equal(surfaceForPath('/ai-sekretar261026/dev','/ai-sekretar261026/'),'dev');assert.equal(surfaceForPath('/other/dev','/ai-sekretar261026/'),null);
+});
 test('catalog keeps real organizations and exactly the current browser demo',()=>{
  const items=[{id:'a',slug:'company',isDemo:false},{id:'b',slug:'demo-1',isDemo:true,isCurrentDemo:false},{id:'c',slug:'demo-2',isDemo:true,isCurrentDemo:true},{id:'d',slug:'demo-stenograf',isDemo:true}];assert.deepEqual(modelCatalogOrganizations(items).map(x=>x.id),['a','c']);
 });

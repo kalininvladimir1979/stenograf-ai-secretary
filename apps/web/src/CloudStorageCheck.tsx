@@ -1,10 +1,11 @@
 import {useEffect,useState} from 'react';
 import {RefreshCw,Cloud,ArrowUpRight} from 'lucide-react';
 import {api} from './api';
+import {surfaceUrl} from './workspace-access';
 
 export default function CloudStorageCheck({orgId,onViewMeetings}:{orgId:string;onViewMeetings:()=>void}){
  const [folders,setFolders]=useState<any[]|null>(null),[usage,setUsage]=useState<any>(null),[result,setResult]=useState<any>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const adminUrl=new URL(location.href);adminUrl.searchParams.set('surface','admin');adminUrl.searchParams.set('section','cloud');
+ const adminUrl=new URL(surfaceUrl('admin','cloud'));
  useEffect(()=>{let active=true;void api<any[]>('/cloud/folders?organizationId='+orgId).then(d=>{if(active)setFolders(d);}).catch(e=>{if(active)setError(e.message);});void api<any>('/ai/usage?organizationId='+orgId).then(d=>{if(active)setUsage(d);}).catch(()=>{});return()=>{active=false;};},[orgId]);
  const activeFolders=folders?.filter(f=>f.status==='active').length||0;
  const check=async()=>{setBusy(true);setError('');setResult(null);try{setResult(await api('/cloud/folders/check-all',{method:'POST',body:JSON.stringify({organizationId:orgId})}));void api('/ai/usage?organizationId='+orgId).then(setUsage).catch(()=>{});}catch(e:any){setError(e.message);}finally{setBusy(false);}};

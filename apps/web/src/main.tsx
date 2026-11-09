@@ -49,8 +49,9 @@ import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from ".
 import KnowledgeTransfer from "./KnowledgeTransfer";
 import CloudStorageCheck from "./CloudStorageCheck";
 import TranscriptView from "./TranscriptView";
-import {modelCatalogOrganizations,shouldStartPublicDemo,workspaceUrl} from "./workspace-access";
+import {modelCatalogOrganizations,shouldStartPublicDemo,workspaceUrl,surfaceForPath,surfaceUrl} from "./workspace-access";
 import WorkspaceSignInDialog from "./WorkspaceSignInDialog";
+import LocalPasswordReset from "./LocalPasswordReset";
 import AdminInstructions,{InstructionsHelp} from "./Instructions";
 
 import ChatComposer,{useVoiceInput,transcribeVoice,VoiceMeter} from "./VoiceInput";
@@ -1387,10 +1388,7 @@ function MeetingDetail({
     }
   };
   const openOrganizationConnections = () => {
-    const target = new URL(window.location.href);
-    target.searchParams.set("surface", "admin");
-    target.searchParams.set("section", "integrations");
-    window.location.assign(target.toString());
+    window.location.assign(surfaceUrl('admin','integrations'));
   };
   const exportFile = async (format: "md" | "pdf") => {
     const response = await fetch(
@@ -3850,8 +3848,8 @@ function PublicationProfiles({ readOnlyDemo }: { readOnlyDemo: boolean }) {
   const publicRouteMissing = preflight?.output.includes("PUBLIC HTTPS HEALTH\n404");
   const links = selected ? [
     { label: "Рабочее пространство", url: selected.publicUrl },
-    { label: "Админ-панель", url: `${selected.publicUrl.replace(/\/$/, "")}/?surface=admin` },
-    { label: "Dev-консоль", url: `${selected.publicUrl.replace(/\/$/, "")}/?surface=dev` },
+    { label: "Админ-панель", url: `${selected.publicUrl.replace(/\/$/, "")}/adminvk` },
+    { label: "Dev-консоль", url: `${selected.publicUrl.replace(/\/$/, "")}/dev` },
   ] : [];
   const startEdit = (profile = selected) => {
     setMessage(""); setFieldErrors({}); setPlan(null); setPreflight(null);
@@ -3936,7 +3934,7 @@ function PublicationProfiles({ readOnlyDemo }: { readOnlyDemo: boolean }) {
     if (!selectedId) return;
     setReleasing(true); setReleaseDialogError(""); setMessage("");
     try {
-      await dev(`/developer/publication/profiles/${selectedId}/release`, { method: "POST", body: JSON.stringify({mode:releaseMode,confirmDowntime:releaseMode==='economy'}) });
+      await dev(`/developer/publication/profiles/${selectedId}/release`, { method: "POST", body: JSON.stringify({mode:releaseMode,confirmDowntime:releaseMode==='economy',confirmRetention:true}) });
       setConfirmRelease(false);
       setReleaseStatus((current: any) => ({ ...current, release: { status: "running", stage: "archive", startedAt: new Date().toISOString() } }));
       dev(`/developer/publication/profiles/${selectedId}/status`).then(setReleaseStatus).catch(() => {});
@@ -4193,14 +4191,23 @@ function DeveloperOrganizations({ readOnlyDemo }: { readOnlyDemo: boolean }) {
 }
 
 function App() {
+  const [passwordResetTicket]=useState(()=>new URLSearchParams(location.hash.slice(1)).get('local-reset')||'');
+  useEffect(()=>{
+    const currentUrl=new URL(location.href),legacy=currentUrl.searchParams.get('surface');
+    if(legacy==='admin'||legacy==='dev'){
+      const target=new URL(surfaceUrl(legacy));
+      currentUrl.searchParams.forEach((value,key)=>{if(key!=='surface')target.searchParams.set(key,value);});
+      history.replaceState(null,'',target);
+    }
+  },[]);
   const [user, setUser] = useState<User | null>(null),
     [memberships, setMemberships] = useState<Membership[]>([]),
     [current, setCurrent] = useState<Membership | null>(null),
     [view, setView] = useState(() =>
-      window.location.pathname === "/admin" || new URLSearchParams(window.location.search).get("surface") === "admin" ||
+      surfaceForPath(window.location.pathname,import.meta.env.BASE_URL) === "admin" || new URLSearchParams(window.location.search).get("surface") === "admin" ||
       window.location.hostname.startsWith("admin.")
         ? "admin"
-        : new URLSearchParams(window.location.search).get("surface") ===
+        : surfaceForPath(window.location.pathname,import.meta.env.BASE_URL) === "dev" || new URLSearchParams(window.location.search).get("surface") ===
               "dev" || window.location.hostname.startsWith("dev.")
           ? "dev"
           : "meetings",
@@ -4315,6 +4322,7 @@ function App() {
     setWorkspaceTourStep(0);
   }, [current?.organization.id, loading, user?.id, view, workspaceTourStep]);
   useEffect(() => { setExpandedMeeting(null); }, [current?.organization.id, departmentFilter, meetingListView, selected, create, view]);
+  if (passwordResetTicket) return <LocalPasswordReset ticket={passwordResetTicket}/>;
   if (loading)
     return <div className="loading">Запускаем рабочее пространство…</div>;
   if (view === "dev")
@@ -4371,6 +4379,7 @@ function App() {
     }
   };
   const navigateToView = (nextView: string) => {
+    if(nextView==='admin'||surfaceForPath(location.pathname,import.meta.env.BASE_URL)) history.replaceState(null,'',surfaceUrl(nextView==='admin'?'admin':'app'));
     setSelected(null);
     setCreate(false);
     setView(nextView);
@@ -4438,7 +4447,7 @@ function App() {
   ) : view === "notifications" ? (
     <Notifications tourPreview={workspaceTourStep === 11} />
   ) : view === "admin" ? (
-    <AdminGate org={org} onBack={() => setView("meetings")} onOrganizationChanged={refreshOrganizations} tourSignal={adminTourSignal} demoMode={demoMode} />
+    <AdminGate org={org} onBack={() => navigateToView("meetings")} onOrganizationChanged={refreshOrganizations} tourSignal={adminTourSignal} demoMode={demoMode} />
   ) : (
     <section className="meetings">
       <header className="page-head">
@@ -4464,7 +4473,7 @@ function App() {
       />
       <Usage orgId={org.id}/>
       <MainCloudConnections orgId={org.id} canManage={['OWNER','ADMIN'].includes(current.role)}><CollectionViewToggle value={meetingListView} onChange={changeMeetingListView} options={meetingListViewOptions} label="Представление списка встреч" /></MainCloudConnections>
-      {user.email.endsWith('@demo.stenograf.local')&&!['OWNER','ADMIN'].includes(current.role)&&<p><a href={location.pathname+'?surface=admin&section=cloud'}>Настроить облачные папки и режим «Файл / папка — встреча»</a> · пароль демо-админки: 1234</p>}
+      {user.email.endsWith('@demo.stenograf.local')&&!['OWNER','ADMIN'].includes(current.role)&&<p><a href={surfaceUrl('admin','cloud')}>Настроить облачные папки и режим «Файл / папка — встреча»</a> · пароль демо-админки: 1234</p>}
       <div className="metrics">
         <div>
           <span>Доступные встречи</span>
