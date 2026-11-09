@@ -3665,3 +3665,5 @@ select option {
   .meeting-notes__document { padding: 24px 18px 30px; font-size: 13px; }
   .meeting-notes__document h3 { margin-top: 26px; font-size: 21px; }
 }
+
+.dev-surface__navigation{display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:10px 0}.dev-surface__navigation a.back{font-size:11px;color:var(--muted)}.dev-surface__navigation a.back:hover{color:var(--wine)}

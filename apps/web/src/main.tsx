@@ -49,6 +49,7 @@ import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from ".
 import KnowledgeTransfer from "./KnowledgeTransfer";
 import CloudStorageCheck from "./CloudStorageCheck";
 import TranscriptView from "./TranscriptView";
+import {modelCatalogOrganizations,shouldStartPublicDemo,workspaceUrl} from "./workspace-access";
 import AdminInstructions,{InstructionsHelp} from "./Instructions";
 
 import ChatComposer,{useVoiceInput,transcribeVoice,VoiceMeter} from "./VoiceInput";
@@ -227,7 +228,7 @@ function ChoiceMenu({
   );
 }
 
-function Login({ onAuth }: { onAuth: (token: string) => void }) {
+function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => void; demoAvailable?:boolean }) {
   const [mode, setMode] = useState<"login" | "register">("login"),
     [form, setForm] = useState({
       email: "",
@@ -246,6 +247,7 @@ function Login({ onAuth }: { onAuth: (token: string) => void }) {
         body: JSON.stringify(form),
       });
       localStorage.setItem("secretary-token", r.token);
+      const url=new URL(location.href);url.searchParams.delete("login");history.replaceState(null,"",url);
       onAuth(r.token);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
@@ -341,6 +343,7 @@ function Login({ onAuth }: { onAuth: (token: string) => void }) {
             ? "Нет аккаунта? Создать"
             : "Уже есть аккаунт? Войти"}
         </button>
+        {demoAvailable&&<a className="text-btn" href={workspaceUrl()}>Открыть моё демо-пространство</a>}
         <small>{mode === "login" ? "Ваши встречи, решения и поручения — в одном пространстве." : "После регистрации вы сможете пригласить коллег в организацию."}</small>
       </div>
       <aside aria-label="О СтеноГРАФе">
@@ -504,6 +507,7 @@ function ProfilePopover({ user, onUpdated, onClose }: { user: User; onUpdated: (
     <label>Должность<input value={form.jobTitle} placeholder="Например, руководитель продукта" onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></label>
     <label>Телефон<input value={form.phone} placeholder="+7 900 000-00-00" onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
     <button className="primary" disabled={saving || form.name.trim().length < 2} onClick={save}>{saving ? "Сохраняем…" : "Сохранить"}</button>
+    <button type="button" className="outline" onClick={()=>{localStorage.removeItem("secretary-token");window.location.assign(workspaceUrl(true));}}>Выйти и войти в другой аккаунт</button>
   </section>;
 }
 
@@ -3092,7 +3096,7 @@ function Dev({ onBack }: { onBack: () => void }) {
   const [fontScale, setFontScale] = useState(() => Number(localStorage.getItem("secretary-font-scale") || 100));
   const [fontMenuOpen, setFontMenuOpen] = useState(false);
   const publicDemoReadOnly = demoMode && !["localhost", "127.0.0.1"].includes(window.location.hostname);
-  const catalogOrganizations = organizations.filter((organization) => organization.slug !== "demo-stenograf");
+  const catalogOrganizations = modelCatalogOrganizations(organizations);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("secretary-theme", theme);
@@ -3138,7 +3142,7 @@ function Dev({ onBack }: { onBack: () => void }) {
     if (!authorized) return;
     dev<any[]>("/developer/organizations").then((orgs) => {
       setOrganizations(orgs);
-      const workingOrgs = orgs.filter((organization) => organization.slug !== "demo-stenograf");
+      const workingOrgs = modelCatalogOrganizations(orgs);
       setCatalogOrgId((current) =>
         workingOrgs.some((organization) => organization.id === current) ? current : workingOrgs[0]?.id || "",
       );
@@ -3272,9 +3276,10 @@ function Dev({ onBack }: { onBack: () => void }) {
   return (
     <main className="dev-surface">
       <header className="dev-surface__bar">
-        <button className="back" onClick={onBack}>
+        <div className="dev-surface__navigation"><button className="back" onClick={onBack}>
           ← К рабочему пространству
         </button>
+        <a className="back" href={workspaceUrl(true)}>Войти в рабочее пространство</a></div>
         <div className="dev-surface__identity">
           <span>СтеноГРАФ</span>
           <b>DEV CONSOLE</b>
@@ -3336,7 +3341,7 @@ function Dev({ onBack }: { onBack: () => void }) {
             {!catalogOrganizations.length && <option value="">Нет рабочих организаций</option>}
             {catalogOrganizations.map((organization) => (
               <option key={organization.id} value={organization.id}>
-                {organization.name}
+                {organization.name}{organization.isCurrentDemo ? " · текущий браузер" : ""}
               </option>
             ))}
           </select>
@@ -3344,7 +3349,7 @@ function Dev({ onBack }: { onBack: () => void }) {
             type="button"
             className="model-help"
             aria-label="Как выбрать организацию для обновления моделей"
-            data-tooltip="Выберите рабочую организацию, для которой будет сохранён каталог моделей. Демонстрационное пространство сюда не входит. Для проверки сначала используется ключ организации, а при его отсутствии — ключ разработчика."
+            data-tooltip="Выберите рабочую организацию или текущее демо-пространство этого браузера. Демо-пространства других посетителей здесь не показываются. Для проверки сначала используется ключ организации, а при его отсутствии — ключ разработчика."
           >
             <Info size={15} />
           </button>
@@ -4203,8 +4208,10 @@ function App() {
         const demo = await api<DemoConfig>("/demo-mode");
         setDemoMode(demo.enabled);
         setDemoConfig(demo);
+        const explicitLogin = new URLSearchParams(location.search).get("login") === "1";
+        if (initial && explicitLogin) localStorage.removeItem("secretary-token");
         const restored = token() ? await load(false) : false;
-        if (demo.enabled && demo.features.publicAccess && (!restored || !restored.user.email.endsWith('@demo.stenograf.local'))) {
+        if (shouldStartPublicDemo({enabled:demo.enabled,publicAccess:demo.features.publicAccess,restored:!!restored,explicitLogin})) {
           const session = await api<{ token: string }>("/auth/demo-session", { method: "POST" });
           localStorage.setItem("secretary-token", session.token);
           const workspace = await load(false);
@@ -4286,6 +4293,7 @@ function App() {
   if (!user || !current)
     return (
       <Login
+        demoAvailable={demoConfig.enabled&&demoConfig.features.publicAccess}
         onAuth={() => {
           setLoading(true);
           load();

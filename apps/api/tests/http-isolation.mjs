@@ -43,6 +43,12 @@ try{
  const admin=(await request('/auth/demo-admin-session',{password:'1234'},browsers[0])).data;
  assert.equal((await request('/admin/access?organizationId='+org,null,browsers[0],admin.token)).data.allowed,true);
  assert.equal((await request('/ai/usage?organizationId='+org,null,browsers[0],admin.token)).data.demoRole,'admin');
+ const organizations=(await fetch(origin+'/developer/organizations',{headers:{'x-dev-password':'1234','x-demo-browser':browsers[0]}})).json();
+ const choices=await organizations;
+ assert.equal(choices.find(o=>o.id===org).isCurrentDemo,true);
+ assert.equal(choices.find(o=>o.id===orgs[1]).isDemo,true);
+ assert.equal(choices.find(o=>o.id===orgs[1]).isCurrentDemo,false);
+ assert.equal(choices.find(o=>o.id===org).demoSpace,undefined);
  const mainSettings='/cloud/main-settings?organizationId='+org;
  assert.equal((await request(mainSettings,null,browsers[0],a.token)).status,403);
  assert.equal((await request(mainSettings,null,browsers[0],admin.token)).data.enabled,true);

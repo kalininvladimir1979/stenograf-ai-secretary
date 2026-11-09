@@ -2661,10 +2661,11 @@ app.get("/developer/logs/export", protectedDev, async (req, res) => {
   }
   res.end();
 });
-app.get("/developer/organizations", protectedDev, async (_, res) => {
+app.get("/developer/organizations", protectedDev, async (req, res) => {
   const organizations = await db.organization.findMany({
     include: {
       departments: true,
+      demoSpace: { select: { browserHash: true } },
       memberships: {
         include: { user: { select: { email: true, name: true } } },
       },
@@ -2672,10 +2673,13 @@ app.get("/developer/organizations", protectedDev, async (_, res) => {
     },
     orderBy: { createdAt: "desc" },
   });
+  const browserHash = createHash("sha256").update(String(req.headers["x-demo-browser"] || "")).digest("hex");
   res.json(
     await Promise.all(
-      organizations.map(async (organization) => ({
+      organizations.map(async ({demoSpace, ...organization}) => ({
         ...organization,
+        isDemo: !!demoSpace || organization.slug === "demo-stenograf",
+        isCurrentDemo: demoSpace?.browserHash === browserHash,
         meetingLimit: Number(
           (await setting("meeting_limit", organization.id)) || 0,
         ),
