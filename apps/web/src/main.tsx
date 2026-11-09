@@ -273,6 +273,8 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
           <label>
             Email
             <input
+              type="email"
+              autoComplete="username"
               value={form.email}
               onChange={(e) => {
                 setError("");
@@ -330,21 +332,25 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
               </label>
             </>
           )}{" "}
-          {error && <p className="error">{error}</p>}
+          <p className="login-account-hint">{mode === "login" ? "Введите пароль аккаунта СтеноГРАФа. Пароль почты и пароль Dev-консоли здесь не используются." : "Задайте отдельный пароль для аккаунта СтеноГРАФа."}{["localhost", "127.0.0.1"].includes(window.location.hostname) && " Это локальная версия: её аккаунты хранятся отдельно от серверных."}</p>
+          {error && <p className="error" role="alert">{error}</p>}
           <button className="primary">
             {mode === "login" ? "Войти в пространство" : "Создать организацию"}
             <ArrowUpRight size={16} />
           </button>
         </form>
-        <button
+        <nav className="login-alternatives" aria-label="Другие способы входа">
+        <div><span>{mode === "login" ? "Нет аккаунта?" : "Уже есть аккаунт?"}</span><button
           className="text-btn"
-          onClick={() => setMode(mode === "login" ? "register" : "login")}
+          type="button"
+          onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
         >
           {mode === "login"
-            ? "Нет аккаунта? Создать"
-            : "Уже есть аккаунт? Войти"}
-        </button>
-        {demoAvailable&&<a className="text-btn" href={workspaceUrl()}>Открыть моё демо-пространство</a>}
+            ? "Создать аккаунт"
+            : "Войти в аккаунт"}
+        </button></div>
+        {demoAvailable&&<a className="login-demo-link" href={workspaceUrl()}><span>Открыть моё демо-пространство</span><ArrowUpRight size={16} aria-hidden="true"/></a>}
+        </nav>
         <small>{mode === "login" ? "Ваши встречи, решения и поручения — в одном пространстве." : "После регистрации вы сможете пригласить коллег в организацию."}</small>
       </div>
       <aside aria-label="О СтеноГРАФе">

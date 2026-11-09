@@ -3162,11 +3162,18 @@ main {
 .login-password-action--clear { right: 38px; }
 .login-password-action--clear:hover,
 .login-password-action--clear:focus-visible { color: var(--wine); }
-.login .text-btn {
-  margin-top: 22px;
-  color: #873c35;
+.login-alternatives { display: grid; gap: 16px; margin-top: 24px; }
+.login-alternatives > div { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 6px; color: var(--muted); font-size: 13px; }
+.login-alternatives .text-btn {
+  margin: 0;
+  padding: 0;
+  color: var(--wine);
   font-size: 13px;
 }
+.login-demo-link { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: 10px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--wine); font-size: 13px; text-decoration: none; }
+.login-demo-link:hover span { text-decoration: underline; text-underline-offset: 4px; }
+.login-demo-link svg { flex-shrink: 0; }
+.login-account-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .login small {
   display: block;
   margin-top: 28px;
