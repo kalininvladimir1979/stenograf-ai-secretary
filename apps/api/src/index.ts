@@ -4,6 +4,7 @@ import {publicationStatus} from "./publication-status.js";
 import {releaseMode,prepareMaintenance,finishMaintenance,type ReleaseMode} from "./release-maintenance.js";
 import {installLocalPasswordReset} from "./local-password-reset.js";
 import {createWorkspace} from "./create-workspace.js";
+import {developerPasswordAccepted} from "./developer-access.js";
 import {installInstructions} from "./instructions.js";
 import express, {
   type Request,
@@ -1760,13 +1761,13 @@ app.post("/notifications/read", auth, async (req: Authed, res) => {
   res.json({ ok: true });
 });
 const protectedDev = async (req: Request, res: Response, next: NextFunction) => {
-  const password = String(req.headers["x-dev-password"] || "");
-  const saved = await db.devSetting.findUnique({ where: { key: "developer_console_password_hash" } });
-  // Демо-режим — отдельный, явно включаемый контур: его код не зависит
-  // от персонального пароля разработчика и не меняет сохранённый хеш.
-  const accepted = saved?.value ? await bcrypt.compare(password, saved.value) : !!process.env.DEV_CONSOLE_BOOTSTRAP_PASSWORD && password === process.env.DEV_CONSOLE_BOOTSTRAP_PASSWORD;
-  if (accepted) return next();
-  return res.status(401).json({ error: "Неверный пароль Dev-консоли. Используйте отдельный пароль разработчика, установленный в разделе «Безопасность»." });
+  try {
+    const password=String(req.headers['x-dev-password']||'');
+    const saved=await db.devSetting.findUnique({where:{key:'developer_console_password_hash'}});
+    const demoEnabled=await demoModeEnabled();
+    if(await developerPasswordAccepted(password,{demoEnabled,savedHash:saved?.value,bootstrapPassword:process.env.DEV_CONSOLE_BOOTSTRAP_PASSWORD}))return next();
+    return res.status(401).json({error:demoEnabled?'Неверный пароль Dev-консоли. В демо-режиме используйте 1234 или свой пароль разработчика.':'Неверный пароль Dev-консоли. Демо-режим выключен: нужен сохранённый пароль разработчика.'});
+  }catch{return res.status(503).json({error:'Не удалось проверить доступ к Dev-консоли. Повторите попытку.'});}
 };
 const protectedPublicationWrite = async (_req: Request, res: Response, next: NextFunction) => {
   if (process.env.NODE_ENV === "production" && await demoModeEnabled())
