@@ -105,3 +105,18 @@ export async function dev<T>(path: string, init: RequestInit = {}, passwordOverr
   if (!r.ok) throw new Error(d.error || (r.status >= 500 ? `Dev API временно недоступен (HTTP ${r.status}). Повторите попытку.` : `Запрос Dev API отклонён (HTTP ${r.status}).`));
   return d as T;
 }
+
+// Binary archives use the same authenticated channel and redirect policy as Dev JSON.
+export async function devResponse(path: string, init: RequestInit = {}) {
+  const url=new URL(API+path,window.location.href);
+  if(!init.method||init.method.toUpperCase()==='GET')url.searchParams.set('_dev_request',crypto.randomUUID());
+  const requestHeaders=new Headers(headers(init.headers));
+  const password=sessionStorage.getItem('secretary-dev-password');
+  if(password)requestHeaders.set('x-dev-password',password);
+  if(init.body instanceof FormData)requestHeaders.delete('Content-Type');
+  let response:Response;
+  try{response=await fetch(url.href,{...init,headers:requestHeaders,cache:'no-store',redirect:'error'});}
+  catch{throw new Error('Не удалось соединиться с сервером переноса данных.');}
+  if(!response.ok){const result=await response.json().catch(()=>({}));throw new Error(result.error||`Не удалось обработать архив (HTTP ${response.status}).`);}
+  return response;
+}

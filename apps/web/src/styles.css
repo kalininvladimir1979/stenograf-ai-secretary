@@ -3753,3 +3753,7 @@ select option {
 }
 
 .dev-surface__navigation{display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:10px 0}.dev-surface__navigation a.back{font-size:11px;color:var(--muted)}.dev-surface__navigation a.back:hover{color:var(--wine)}
+.archive-password { display: grid; gap: 9px; margin: 20px 0; max-width: 520px; }
+.archive-password > span { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; }
+.archive-password input { min-height: 44px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; color: var(--ink); }
+.archive-password small { color: var(--muted); font: 12px/1.6 Manrope,sans-serif; }

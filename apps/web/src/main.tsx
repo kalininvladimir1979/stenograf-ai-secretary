@@ -3167,7 +3167,7 @@ function Dev({ onBack }: { onBack: () => void }) {
       });
   };
   useEffect(()=>{
-    if(!token())return;
+    if(!token()||sessionStorage.getItem('secretary-dev-password')==='1234')return;
     let active=true;
     const attempt=devAccessAttempt.current;
     dev<{mode:string;canManageDemo:boolean}>('/developer/access',{},'').then(access=>{
@@ -3465,7 +3465,7 @@ function Dev({ onBack }: { onBack: () => void }) {
           Публикация
         </button>
         <button className={tab === "removal" ? "active" : ""} onClick={() => setTab("removal")}>Удаление с сервера</button>
-        <button className={tab === "transfer" ? "active" : ""} onClick={() => setTab("transfer")}>Перенос заданий</button>
+        <button className={tab === "transfer" ? "active" : ""} onClick={() => setTab("transfer")}>Перенос данных</button>
         {developerAccess.canManageDemo && <button className={tab === "security" ? "active" : ""} onClick={() => setTab("security")}>Безопасность</button>}
       </nav>
       {tab === "keys" && (

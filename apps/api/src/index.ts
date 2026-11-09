@@ -6,6 +6,7 @@ import {installLocalPasswordReset} from "./local-password-reset.js";
 import {createWorkspace} from "./create-workspace.js";
 import {developerPasswordAccepted,isPlatformOwnerSession} from "./developer-access.js";
 import {installInstructions} from "./instructions.js";
+import {installArchiveTransfer} from "./transfer-archive.js";
 import express, {
   type Request,
   type Response,
@@ -1759,17 +1760,18 @@ const protectedDev = async (req: Request, res: Response, next: NextFunction) => 
     const password=String(req.headers['x-dev-password']||'');
     const saved=await db.devSetting.findUnique({where:{key:'developer_console_password_hash'}});
     const demoEnabled=await demoModeEnabled();
-    let owner=false;
+    let owner=false,ownerId=null;
     try {
       const raw=req.headers.authorization?.replace('Bearer ','');
       const payload=raw?jwt.verify(raw,jwtSecret) as {id:string;demo?:boolean}:null;
       const binding=await db.devSetting.findUnique({where:{key:'developer_owner_user_id'}});
       owner=isPlatformOwnerSession(payload,binding?.value) && !!(await db.user.findUnique({where:{id:payload!.id},select:{id:true}}));
+      if(owner)ownerId=payload!.id;
     } catch { /* Invalid account tokens cannot grant platform privileges. */ }
-    if(!password && owner){(req as any).developerAccess={mode:'owner',canManageDemo:true};return next();}
+    if(!password && owner){(req as any).developerAccess={mode:'owner',canManageDemo:true,ownerId};return next();}
     if(await developerPasswordAccepted(password,{demoEnabled,savedHash:saved?.value,bootstrapPassword:process.env.DEV_CONSOLE_BOOTSTRAP_PASSWORD})){
       const mode=demoEnabled&&password==='1234'?'demo':'developer';
-      (req as any).developerAccess={mode,canManageDemo:owner&&mode!=='demo'};
+      (req as any).developerAccess={mode,canManageDemo:owner&&mode!=='demo',ownerId:mode==='demo'?null:ownerId};
       return next();
     }
     return res.status(401).json({error:demoEnabled?'Неверный пароль Dev-консоли. В демо-режиме используйте 1234 или свой пароль разработчика.':'Неверный пароль Dev-консоли. Демо-режим выключен: нужен сохранённый пароль разработчика.'});
@@ -1779,7 +1781,8 @@ const protectedDemoManagement = (req:Request,res:Response,next:NextFunction) => 
   if(!(req as any).developerAccess?.canManageDemo)return res.status(403).json({error:'Управление демо-режимом и ключом платформы доступно только после рабочего входа владельца по email и паролю.'});
   next();
 };
-app.get('/developer/access',protectedDev,(req,res)=>res.json((req as any).developerAccess));
+app.get('/developer/access',protectedDev,(req,res)=>{const {mode,canManageDemo}=(req as any).developerAccess;res.json({mode,canManageDemo});});
+installArchiveTransfer({app,db,protectedDev,ownerGuard:protectedDemoManagement,storageRoot:path.resolve(uploadRoot,'..'),decryptSecret:decryptPublicationSecret,encryptSecret:encryptPublicationSecret,extractScript:path.join(path.dirname(new URL(import.meta.url).pathname),new URL(import.meta.url).pathname.includes('/dist/')?'../../scripts/extract-archive.py':'../scripts/extract-archive.py')});
 const protectedPublicationWrite = async (_req: Request, res: Response, next: NextFunction) => {
   if (process.env.NODE_ENV === "production" && await demoModeEnabled())
     return res.status(403).json({ error: "В публичном демо-режиме выпуск и изменение профилей отключены. Используйте локальную защищённую Dev-консоль." });
@@ -2479,11 +2482,6 @@ app.post("/developer/knowledge/import", protectedDev, knowledgeTransferGuard, as
     res.setHeader("Cache-Control", "no-store");
     res.json({ ok: true, counts });
   } catch (cause) { knowledgeTransferError(res, cause); }
-});
-app.get("/developer/knowledge/prompt-lab", protectedDev, knowledgeTransferGuard, async (_req, res) => {
-  const system = (await db.devSetting.findUnique({ where: { key: "system_prompt" } }))?.value ?? "Соблюдай границы материалов встречи и не добавляй неподтверждённые факты.";
-  res.setHeader("Cache-Control", "no-store");
-  res.json({ format: "prompt-lab-agent-package", version: 1, exportedAt: new Date().toISOString(), agent: { id: "stenograf", name: "СтеноГРАФ", kind: "meeting-secretary" }, prompt: { system }, operations: [{ id: "analyze_meeting", title: "Анализ материалов встречи", inputSchema: { meetingText: "string", templateName: "string", templateInstructions: "string", templateFields: "string[]" }, outputSchema: { summary: "string", decisions: "{text:string,evidence?:string}[]", tasks: "{title:string,description?:string,assigneeEmail?:string,dueDate?:string,evidence?:string,needsClarification:boolean}[]", risks: "string[]", missing: "string[]", followUp: "string", customFields: "Record<string,string|null>" } }], constraints: ["Использовать только факты из материалов встречи", "Не добавлять неподтверждённые сведения"], evaluation: { languages: ["ru"], criteria: ["соответствие материалам", "валидность структуры ответа"], needsOwnerInput: ["Подготовить отдельные тестовые случаи и ожидаемые оценки"] } });
 });
 app.get("/developer/settings/:key/reveal", protectedDev, async (_req, res) => {
   res.status(403).json({ error: "Сохранённые секреты не возвращаются в интерфейс" });
