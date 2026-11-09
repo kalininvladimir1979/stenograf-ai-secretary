@@ -1,8 +1,10 @@
+import {createSessionStore} from './session-contour';
+export const sessions=createSessionStore(localStorage,sessionStorage);
 const appBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 export const API =
   import.meta.env.VITE_API_URL ||
   (window.location.hostname === "localhost" ? "http://localhost:3002" : `${appBase}/api`);
-export const token = () => localStorage.getItem("secretary-token") || "";
+export const token = () => sessions.token();
 export const demoBrowser = () => {
   let id=localStorage.getItem('secretary-demo-browser');
   if(!id){id=crypto.randomUUID();localStorage.setItem('secretary-demo-browser',id);}return id;
@@ -94,6 +96,7 @@ export async function dev<T>(path: string, init: RequestInit = {}, passwordOverr
       // Developer credentials must never be forwarded to a different endpoint.
       redirect: "error",
       headers: headers({
+        ...(sessions.developerToken()?{Authorization:`Bearer ${sessions.developerToken()}`} : {}),
         ...(devPassword ? { "x-dev-password": devPassword } : {}),
         ...init.headers,
       }),
@@ -111,6 +114,7 @@ export async function devResponse(path: string, init: RequestInit = {}) {
   const url=new URL(API+path,window.location.href);
   if(!init.method||init.method.toUpperCase()==='GET')url.searchParams.set('_dev_request',crypto.randomUUID());
   const requestHeaders=new Headers(headers(init.headers));
+  if(sessions.developerToken())requestHeaders.set('Authorization',`Bearer ${sessions.developerToken()}`);
   const password=sessionStorage.getItem('secretary-dev-password');
   if(password)requestHeaders.set('x-dev-password',password);
   if(init.body instanceof FormData)requestHeaders.delete('Content-Type');

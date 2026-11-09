@@ -45,7 +45,7 @@ import {
   X,
   Type,
 } from "lucide-react";
-import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from "./api";
+import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser, sessions} from "./api";
 import KnowledgeTransfer from "./KnowledgeTransfer";
 import CloudStorageCheck from "./CloudStorageCheck";
 import TranscriptView from "./TranscriptView";
@@ -264,7 +264,7 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
         method: "POST",
         body: JSON.stringify(credentials),
       });
-      localStorage.setItem("secretary-token", r.token);
+      sessions.saveWork(r.token);
       if(new URL(location.href).searchParams.get('returnTo')==='dev'){
         sessionStorage.removeItem('secretary-dev-password');
         window.location.assign(surfaceUrl('dev'));
@@ -542,7 +542,7 @@ function ProfilePopover({ user, onUpdated, onClose }: { user: User; onUpdated: (
     <label>Должность<input value={form.jobTitle} placeholder="Например, руководитель продукта" onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></label>
     <label>Телефон<input value={form.phone} placeholder="+7 900 000-00-00" onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
     <button className="primary" disabled={saving || form.name.trim().length < 2} onClick={save}>{saving ? "Сохраняем…" : "Сохранить"}</button>
-    <button type="button" className="outline" onClick={()=>{localStorage.removeItem("secretary-token");window.location.assign(workspaceUrl(true));}}>Выйти и войти в другой аккаунт</button>
+    <button type="button" className="outline" onClick={()=>{sessions.clearActive();window.location.assign(workspaceUrl(true));}}>Выйти и войти в другой аккаунт</button>
   </section>;
 }
 
@@ -2212,7 +2212,7 @@ function AdminGate({ org, onBack, onOrganizationChanged, tourSignal, demoMode }:
     setError("");
     try {
       const result = await api<{ token: string }>("/auth/demo-admin-session", { method: "POST", body: JSON.stringify({ password: pass }) });
-      localStorage.setItem("secretary-token", result.token);
+      sessions.saveDemo(result.token);
       const access = await api<{ allowed: boolean }>(`/admin/access?organizationId=${org.id}`);
       if (!access.allowed) throw new Error("Доступ к этой организации не разрешён.");
       setOk(true);
@@ -2564,7 +2564,7 @@ function Admin({ org, onBack, onOrganizationChanged, tourSignal }: { org: Org; o
         ))}
       </section>
       </AccordionSection>
-      <AccordionSection title="Главная и ключи" summary="OpenAI текущего пространства, модели и email" open={openSection === "integrations"} onToggle={() => setOpenSection("integrations")} tourTarget="integrations"><AdminIntegrations organizationId={org.id} /></AccordionSection>
+      <AccordionSection title="Главная и ключи" summary="OpenAI текущего пространства, модели и email" open={openSection === "integrations"} onToggle={() => setOpenSection("integrations")} tourTarget="integrations"><AdminIntegrations organizationId={org.id} organizationName={org.name} /></AccordionSection>
       <AccordionSection title="Отделы" summary={`${org.departments.length} отделов в организации`} open={openSection === "departments"} onToggle={() => setOpenSection("departments")} tourTarget="departments"><AdminDepartments org={org} onOrganizationChanged={onOrganizationChanged} /></AccordionSection>
       <AccordionSection title="Команда и роли" summary="Доступ сотрудников и распределение по отделам" open={openSection === "members"} onToggle={() => setOpenSection("members")} tourTarget="members"><AdminMembers org={org} /></AccordionSection>
       </div>
@@ -2971,7 +2971,7 @@ function AdminMembers({ org }: { org: Org }) {
   );
 }
 
-function AdminIntegrations({ organizationId }: { organizationId: string }) {
+function AdminIntegrations({ organizationId, organizationName }: { organizationId: string; organizationName:string }) {
   const [items, setItems] = useState<any[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [openGroup, setOpenGroup] = useState<"ai" | "email" | null>(() => new URLSearchParams(window.location.search).get("section") === "integrations" ? "ai" : null);
@@ -3072,6 +3072,7 @@ function AdminIntegrations({ organizationId }: { organizationId: string }) {
   return (
     <section className="integrations">
       <h2>Подключения организации</h2>
+      <p role="status">Настройки пространства «{organizationName}». Сохранённый ключ применяется только к этому пространству.</p>
       <p>
         Настройте только те сервисы, которые нужны вашей команде. Секреты не
         отображаются после сохранения и передаются только на сервере.
@@ -3167,7 +3168,7 @@ function Dev({ onBack }: { onBack: () => void }) {
       });
   };
   useEffect(()=>{
-    if(!token()||sessionStorage.getItem('secretary-dev-password')==='1234')return;
+    if(!sessions.workingToken()||sessionStorage.getItem('secretary-dev-password')==='1234')return;
     let active=true;
     const attempt=devAccessAttempt.current;
     dev<{mode:string;canManageDemo:boolean}>('/developer/access',{},'').then(access=>{
@@ -3380,6 +3381,7 @@ function Dev({ onBack }: { onBack: () => void }) {
       <section className="dev">
       {developerAccess.mode==='demo' && <aside className="dev-demo-banner" role="status"><Lock size={20} aria-hidden="true"/><div><strong>Демо-режим консоли</strong><p>Учебный вход по коду 1234. Управление демо-режимом и ключом платформы доступно только владельцу.</p><a href={developerOwnerLoginUrl()}>Войти владельцу по email и паролю <ArrowUpRight size={14}/></a></div></aside>}
       {developerAccess.mode==='owner' && <p className="dev-owner-session"><CheckCircle2 size={16} aria-hidden="true"/> Рабочий доступ владельца</p>}
+      <p className="dev-owner-session" role="status">Контур приложения: <strong>{demoMode?'Демо':'Рабочий'}</strong></p>
       <header>
         <h1>Провайдеры и секреты</h1>
       </header>
@@ -4296,7 +4298,7 @@ function App() {
       setCurrent((c) => x.organizations.find(item=>item.organization.id===c?.organization.id) || x.organizations[0] || null);
       return x;
     } catch {
-      if(token()===requestedToken){localStorage.removeItem("secretary-token");setUser(null);setMemberships([]);setCurrent(null);}
+      if(token()===requestedToken){sessions.clearActive();setUser(null);setMemberships([]);setCurrent(null);}
       return false;
     } finally {
       if (finishLoading) setLoading(false);
@@ -4311,28 +4313,32 @@ function App() {
         const demo = await api<DemoConfig>("/demo-mode");
         setDemoMode(demo.enabled);
         setDemoConfig(demo);
-        const explicitLogin = new URLSearchParams(location.search).get("login") === "1";
-        if (initial && explicitLogin) localStorage.removeItem("secretary-token");
-        const initialToken=token();
-        const restored = initialToken ? await load(false) : false;
-        if (shouldStartPublicDemo({enabled:demo.enabled,publicAccess:demo.features.publicAccess,restored:!!restored,explicitLogin})) {
-          const beforeDemoToken=token();
-          if(beforeDemoToken&&beforeDemoToken!==initialToken)return;
-          const session = await api<{ token: string }>("/auth/demo-session", { method: "POST" });
-          if(token()!==beforeDemoToken)return;
-          localStorage.setItem("secretary-token", session.token);
-          const workspace = await load(false);
-          if (workspace) setCurrent(workspace.organizations[0] || null);
-        } else if (!demo.enabled && restored && restored.user.email.endsWith('@demo.stenograf.local')) {
-          localStorage.removeItem("secretary-token");
-          setUser(null);
-          setMemberships([]);
-          setCurrent(null);
+        // The console has its own owner authentication; its catalog selection
+        // must never choose the public app's working organization.
+        if(view==='dev')return;
+        const query=new URLSearchParams(location.search);
+        const accountSignIn=query.get('login')==='1'&&(!demo.enabled||query.get('returnTo')==='dev');
+        if(accountSignIn){
+          sessions.select('work');
+          if(initial)sessions.clearWork();
+          setUser(null);setMemberships([]);setCurrent(null);
+          return;
         }
+        const nextContour=demo.enabled?'demo':'work';
+        const switched=sessions.contour()!==nextContour;
+        sessions.select(nextContour);
+        if(switched&&!initial){setLoading(true);setSelected(null);setCreate(false);}
+        const restored=token()?await load(false):false;
+        if(shouldStartPublicDemo({enabled:demo.enabled,publicAccess:demo.features.publicAccess,restored:!!restored,explicitLogin:false})){
+          const session=await api<{token:string}>('/auth/demo-session',{method:'POST'});
+          sessions.saveDemo(session.token);
+          await load(false);
+        }else if(!restored){setUser(null);setMemberships([]);setCurrent(null);}
+
       } catch {
         // Ошибка загрузки не должна оставлять экран запуска навсегда.
       } finally {
-        if (initial) setLoading(false);
+        setLoading(false);
         checking = false;
       }
     };
@@ -4340,7 +4346,9 @@ function App() {
     void syncAccess(true);
     document.addEventListener("visibilitychange", resume);
     window.addEventListener("focus", resume);
+    const modeTimer=window.setInterval(()=>void syncAccess(),10000);
     return () => {
+      window.clearInterval(modeTimer);
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("focus", resume);
     };
@@ -4402,10 +4410,7 @@ function App() {
     return (
       <Login
         demoAvailable={demoConfig.enabled&&demoConfig.features.publicAccess}
-        onAuth={() => {
-          setLoading(true);
-          load();
-        }}
+        onAuth={() => { window.location.assign(surfaceUrl('app')); }}
       />
     );
   if (!current) return <WorkspaceSetup email={user.email} onCreated={()=>{setLoading(true);void load();}}/>;
