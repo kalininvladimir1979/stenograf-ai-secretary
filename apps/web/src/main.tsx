@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import {
   ArrowUpRight,
   Bell,
+  Camera,
+  LogOut,
   BookOpen,
   CalendarDays,
   CheckCircle2,
@@ -47,6 +49,7 @@ import {
 } from "lucide-react";
 import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser, sessions} from "./api";
 import KnowledgeTransfer from "./KnowledgeTransfer";
+import {isMissingOpenAiKey,missingOpenAiKeyMessage} from './meeting-errors';
 import MeetingMaterials,{type MeetingMaterialsHandle} from "./MeetingMaterials";
 import CloudStorageCheck from "./CloudStorageCheck";
 import TranscriptView from "./TranscriptView";
@@ -92,6 +95,7 @@ type Meeting = {
   title: string;
   state: string;
   summary?: string;
+  error?: string | null;
   createdAt: string;
   updatedAt: string;
   processingStartedAt?: string | null;
@@ -507,11 +511,13 @@ function ProfilePopover({ user, onUpdated, onClose }: { user: User; onUpdated: (
   const [saving, setSaving] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState("");
+  const [profileError,setProfileError]=useState("");
   const avatarInput = useRef<HTMLInputElement>(null);
-  useEffect(() => { api<{ user: User; stats: { meetings: number; tasks: number; organizations: number } }>("/profile").then(setProfile); }, []);
+  useEffect(() => { api<{ user: User; stats: { meetings: number; tasks: number; organizations: number } }>("/profile").then(setProfile).catch(()=>setProfileError("Не удалось обновить статистику профиля. Повторите открытие панели.")); }, []);
   const save = async () => {
-    setSaving(true);
+    setSaving(true);setProfileError("");
     try { onUpdated(await api<User>("/profile", { method: "PUT", body: JSON.stringify(form) })); onClose(); }
+    catch(error){setProfileError(error instanceof Error?error.message:"Не удалось сохранить профиль.");}
     finally { setSaving(false); }
   };
   const saveAvatar = async (file: File) => {
@@ -529,9 +535,10 @@ function ProfilePopover({ user, onUpdated, onClose }: { user: User; onUpdated: (
     finally { setAvatarBusy(false); }
   };
   return <section className="profile-popover" aria-label="Профиль пользователя">
-    <header><button type="button" className="profile-popover__monogram" title="Загрузить аватар" aria-label="Загрузить аватар" disabled={avatarBusy} onClick={() => avatarInput.current?.click()}>{user.avatarDataUrl ? <img src={user.avatarDataUrl} alt="" /> : user.name.split(" ").map((x) => x[0]).join("").slice(0, 2)}</button><div><strong>{user.name}</strong><span>{user.email}</span></div></header>
+    <header><button type="button" className="profile-popover__monogram" title="Загрузить аватар" aria-label="Загрузить аватар" disabled={avatarBusy} onClick={() => avatarInput.current?.click()}>{user.avatarDataUrl ? <img src={user.avatarDataUrl} alt="" /> : user.name.split(" ").map((x) => x[0]).join("").slice(0, 2)}</button><div className="profile-popover__identity"><small>Личный профиль</small><strong>{user.name}</strong><span>{user.email.endsWith("@demo.stenograf.local")?"Демонстрационный аккаунт":user.email}</span></div></header>
+    <div className="profile-popover__body">
     <input ref={avatarInput} className="profile-popover__file-input" type="file" accept="image/*,.heic,.heif,.avif,.tif,.tiff,.bmp,.ico" onChange={(event) => { const file = event.target.files?.[0]; if (file) void saveAvatar(file); event.target.value = ""; }} />
-    <div className="profile-popover__avatar-actions"><button type="button" className="outline" disabled={avatarBusy} onClick={() => avatarInput.current?.click()}>{avatarBusy ? "Загружаем…" : user.avatarDataUrl ? "Заменить аватар" : "Добавить аватар"}</button>{user.avatarDataUrl && <button type="button" className="outline" disabled={avatarBusy} onClick={removeAvatar}>Убрать</button>}</div>
+    <div className="profile-popover__avatar-actions"><button type="button" className="outline" disabled={avatarBusy} onClick={() => avatarInput.current?.click()}><Camera size={15} aria-hidden="true"/>{avatarBusy ? "Загружаем…" : user.avatarDataUrl ? "Заменить аватар" : "Добавить аватар"}</button>{user.avatarDataUrl && <button type="button" className="outline" disabled={avatarBusy} onClick={removeAvatar}>Убрать</button>}</div>
     <p className="profile-popover__avatar-hint">Изображение до 20 МБ. Сервер подготовит его для профиля.</p>
     {avatarError && <p className="error" role="alert">{avatarError}</p>}
     <div className="profile-popover__stats">
@@ -539,11 +546,13 @@ function ProfilePopover({ user, onUpdated, onClose }: { user: User; onUpdated: (
       <span><b>{profile?.stats.tasks ?? "—"}</b>активных задач</span>
       <span><b>{profile?.stats.organizations ?? "—"}</b>организаций</span>
     </div>
-    <label>Имя<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-    <label>Должность<input value={form.jobTitle} placeholder="Например, руководитель продукта" onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></label>
-    <label>Телефон<input value={form.phone} placeholder="+7 900 000-00-00" onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
-    <button className="primary" disabled={saving || form.name.trim().length < 2} onClick={save}>{saving ? "Сохраняем…" : "Сохранить"}</button>
-    <button type="button" className="outline" onClick={()=>{sessions.clearActive();window.location.assign(workspaceUrl(true));}}>Выйти и войти в другой аккаунт</button>
+    <label>Имя<input autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+    <label>Должность<input autoComplete="organization-title" value={form.jobTitle} placeholder="Например, руководитель продукта" onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></label>
+    <label>Телефон<input type="tel" autoComplete="tel" value={form.phone} placeholder="+7 900 000-00-00" onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
+    {profileError&&<p className="error" role="alert">{profileError}</p>}
+    <footer className="profile-popover__footer"><button className="primary" disabled={saving || form.name.trim().length < 2} onClick={save}>{saving ? "Сохраняем…" : "Сохранить"}</button>
+    <button type="button" className="outline profile-popover__signout" onClick={()=>{sessions.clearActive();window.location.assign(workspaceUrl(true));}}><LogOut size={15} aria-hidden="true"/>Выйти и сменить аккаунт</button></footer>
+    </div>
   </section>;
 }
 
@@ -651,6 +660,8 @@ function Sidebar({
   );
 }
 
+function KeySetupNotice({demo,meetingId}:{demo:boolean;meetingId?:string}){return <div className="meeting-key-notice" onClick={e=>e.stopPropagation()}><strong>Нужен ключ OpenAI</strong><p>{missingOpenAiKeyMessage(demo)}</p><a href={surfaceUrl('admin','integrations')} onClick={()=>{sessionStorage.setItem('secretary-return',JSON.stringify({meetingId,url:location.href}));}}>Открыть настройки OpenAI <ArrowUpRight size={13} aria-hidden="true"/></a>{demo&&<small>Пароль демо-админки: <b>1234</b></small>}</div>;}
+
 function MeetingCard({
   meeting,
   view,
@@ -658,6 +669,8 @@ function MeetingCard({
   onTasks,
   onDelete,
   expanded = false,
+  demo = false,
+  keyConfigured,
   onToggle,
 }: {
   meeting: Meeting;
@@ -666,8 +679,12 @@ function MeetingCard({
   onTasks?: () => void;
   onDelete?: () => void;
   expanded?: boolean;
+  demo?: boolean;
+  keyConfigured?: boolean;
   onToggle?: () => void;
 }) {
+  const needsKey=meeting.state==="FAILED"&&keyConfigured!==true&&isMissingOpenAiKey(meeting.error,meeting.processingStage);
+  const stateLabel=needsKey?"Ожидает ключа OpenAI":meetingStateLabels[meeting.state]||meeting.state;
   const nextAction = meeting.state === "PROCESSING" ? null
     : meeting.state === "READY" && meeting.tasks.length > 0
       ? { label: `Поручения · ${meeting.tasks.length}`, onClick: onTasks || onOpen }
@@ -678,10 +695,11 @@ function MeetingCard({
     <h2 className="meeting-accordion__heading">
       <button type="button" className="meeting-accordion__trigger" id={`meeting-trigger-${meeting.id}`} aria-expanded={expanded} aria-controls={`meeting-panel-${meeting.id}`} onClick={onToggle}>
         <span className="meeting-accordion__title" title={meeting.title}>{meeting.title}</span>
-        {meeting.state === "PROCESSING" ? <MeetingCardProcessing startedAt={meeting.processingStartedAt || meeting.updatedAt} /> : <span className={meeting.state === "READY" ? "ready" : "pending"}>{meetingStateLabels[meeting.state] || meeting.state}</span>}
+        {meeting.state === "PROCESSING" ? <MeetingCardProcessing startedAt={meeting.processingStartedAt || meeting.updatedAt} /> : <span className={meeting.state === "READY" ? "ready" : "pending"}>{stateLabel}</span>}
         <ChevronDown size={16} aria-hidden="true" />
       </button>
     </h2>
+    {needsKey&&<KeySetupNotice demo={demo} meetingId={meeting.id}/>}
     <div id={`meeting-panel-${meeting.id}`} aria-labelledby={`meeting-trigger-${meeting.id}`} className="meeting-accordion__panel" hidden={!expanded}>
       <div className="card-meta">
         <span className="card-meta__department">{meeting.department.name}</span>
@@ -709,13 +727,14 @@ function MeetingCard({
         <ArrowUpRight className="card-meta__open" size={14} aria-hidden="true" />
       </div>
       <h2>{meeting.title}</h2>
+      {needsKey&&<KeySetupNotice demo={demo} meetingId={meeting.id}/>}
       {meeting.processingStage&&<p className="meeting-card__stage" role="status">{meeting.processingStage}</p>}
       <p className="meeting-card__preview">{meetingPreview(meeting.summary, view)}</p>
       <footer>
         <span>Решения: {meeting.summary ? "есть" : "—"}</span>
         <span>Поручения: {meeting.tasks.length}</span>
         {meeting.state === "PROCESSING" ? <MeetingCardProcessing startedAt={meeting.processingStartedAt || meeting.updatedAt} /> : <span className={meeting.state === "READY" ? "ready" : "pending"}>
-          {meetingStateLabels[meeting.state] || meeting.state}
+          {stateLabel}
         </span>}
         {nextAction?.onClick && <button className="meeting-card__next" type="button" onClick={(event) => { event.stopPropagation(); nextAction.onClick?.(); }}><ArrowUpRight size={13} />{nextAction.label}</button>}
         {onDelete && <button className="meeting-card__delete" type="button" aria-label={`Удалить встречу ${meeting.title}`} title="Удалить встречу" onClick={(event) => { event.stopPropagation(); onDelete(); }}><Trash2 size={15} /></button>}
@@ -1228,6 +1247,7 @@ function ProcessingPanel({ kind, startedAt }: { kind: "result" | "transcript"; s
 }
 
 function MeetingDetail({
+  demo = false,
   id,
   org,
   onBack,
@@ -1239,6 +1259,7 @@ function MeetingDetail({
   onBack: () => void;
   onDelete: (meeting: Meeting) => void;
   tourResultSection?: "tasks";
+  demo?: boolean;
 }) {
   const readTab = (meetingId: string) => {
     const saved = sessionStorage.getItem(`secretary-meeting-tab:${meetingId}`);
@@ -1327,6 +1348,7 @@ function MeetingDetail({
     anchor.click();
     URL.revokeObjectURL(anchor.href);
   };
+  const missingKey=m.state==="FAILED"&&!m.hasTranscriptionKey&&isMissingOpenAiKey(m.error,m.processingStage);
   const regionUnavailable = /unsupported_country_region_territory|недоступен из региона/i.test(m.error || "");
   const invalidAnalysis = /invalid_type|неполный анализ|неподдерживаемом формате/.test(m.error || "");
   const updateTask = async (
@@ -1382,7 +1404,6 @@ function MeetingDetail({
   return (
     <section className="detail">
       <Usage orgId={org.id}/>
-      {m.error&&/ключ/i.test(m.error)&&<AdminLink meetingId={id}/>}
       <button className="back" onClick={onBack}>
         ← Все встречи
       </button>
@@ -1413,19 +1434,19 @@ function MeetingDetail({
             Сохранить изменения
           </button>
         </div>
-        <div className="detail-head__status" role="status"><span className={`state ${m.state.toLowerCase()}`}>{meetingStateLabels[m.state] || m.state}</span>{m.state==='PROCESSING'&&m.processingStage&&<span>{m.processingStage}{m.processingStartedAt?` · начало ${new Date(m.processingStartedAt).toLocaleString('ru-RU')}`:''}</span>}</div>
+        <div className="detail-head__status" role="status"><span className={`state ${m.state.toLowerCase()}`}>{missingKey?"Ожидает ключа OpenAI":meetingStateLabels[m.state] || m.state}</span>{m.state==='PROCESSING'&&m.processingStage&&<span>{m.processingStage}{m.processingStartedAt?` · начало ${new Date(m.processingStartedAt).toLocaleString('ru-RU')}`:''}</span>}</div>
       </header>
       {m.state === "FAILED" && (
         <div className="detail-error-panel" role="alert">
-          <strong>Обработка не завершилась</strong>
-          <p>{regionUnavailable ? "OpenAI отклонил расшифровку: сервис был недоступен из региона сервера. Если вы изменили маршрут обработки, повторите распознавание сохранённой аудиодорожки. Через прежний маршрут запрос снова завершится ошибкой." : invalidAnalysis ? "AI не смог сформировать результат в нужном формате. Материалы сохранены. Повторите обработку или добавьте содержательные заметки." : m.error || "Неизвестная ошибка."}</p>
+          <strong>{missingKey?"Ожидает ключа OpenAI":"Обработка не завершилась"}</strong>
+          {!missingKey&&<p>{regionUnavailable ? "OpenAI отклонил расшифровку: сервис был недоступен из региона сервера. Если вы изменили маршрут обработки, повторите распознавание сохранённой аудиодорожки. Через прежний маршрут запрос снова завершится ошибкой." : invalidAnalysis ? "AI не смог сформировать результат в нужном формате. Материалы сохранены. Повторите обработку или добавьте содержательные заметки." : m.error || "Неизвестная ошибка."}</p>}
           {retryError && <p>{retryError}</p>}
-          {!m.hasTranscriptionKey && <p>Для расшифровки аудио нужен ключ OpenAI именно в настройках этой организации. В демо источник ключа определяется настройкой «Использовать ключ платформы» в консоли.</p>}
+          {missingKey&&<KeySetupNotice demo={demo} meetingId={id}/>}
           {!m.canRetryFromSource && <p>В этой встрече пока нет материалов для анализа. Откройте «Материалы» и добавьте текст, файл или облачную ссылку.</p>}
           {regionUnavailable && <p>Также можно вставить готовую стенограмму во вкладке «Материалы» и обработать текст без распознавания аудио.</p>}
           <div>
-            {m.canRetryFromSource && (m.hasTranscriptionKey || m.transcript?.text) && <button className="primary" onClick={retry} disabled={busy}><RefreshCw size={15} className={busy ? "spin" : ""} />{busy ? "Запускаем…" : regionUnavailable && !m.transcript?.text ? "Повторить распознавание" : "Повторить обработку"}</button>}
-            {!m.hasTranscriptionKey && <button className="outline" onClick={openOrganizationConnections}>Настроить OpenAI в админ-панели</button>}
+            {m.canRetryFromSource && m.hasTranscriptionKey && <button className="primary" onClick={retry} disabled={busy}><RefreshCw size={15} className={busy ? "spin" : ""} />{busy ? "Запускаем…" : regionUnavailable && !m.transcript?.text ? "Повторить распознавание" : "Повторить обработку"}</button>}
+            {!m.hasTranscriptionKey && !missingKey && <button className="outline" onClick={openOrganizationConnections}>Настроить OpenAI в админ-панели</button>}
             {(regionUnavailable || !m.canRetryFromSource) && <button className="outline" onClick={() => changeTab("materials")}>{m.canRetryFromSource ? "Вставить текст встречи" : "Выбрать файл заново"}</button>}
           </div>
         </div>
@@ -4351,6 +4372,7 @@ function App() {
     <TourMeetingPreview taskEditor={workspaceTourStep === 6} />
   ) : selected ? (
     <MeetingDetail
+      demo={user.email.endsWith("@demo.stenograf.local")}
       id={selected}
       org={org}
       tourResultSection={workspaceTourStep === 6 ? "tasks" : undefined}
@@ -4411,7 +4433,6 @@ function App() {
       />
       <Usage orgId={org.id} onUsage={setDemoKeyUsage}/>
       <MainCloudConnections orgId={org.id} canManage={['OWNER','ADMIN'].includes(current.role)}><CollectionViewToggle value={meetingListView} onChange={changeMeetingListView} options={meetingListViewOptions} label="Представление списка встреч" /></MainCloudConnections>
-      {user.email.endsWith('@demo.stenograf.local')&&!['OWNER','ADMIN'].includes(current.role)&&<p><a href={surfaceUrl('admin','cloud')}>Настроить облачные папки и режим «Файл / папка — встреча»</a> · пароль демо-админки: 1234</p>}
       <div className="metrics">
         <div>
           <span>Доступные встречи</span>
@@ -4443,6 +4464,8 @@ function App() {
           <MeetingCard
             key={x.id}
             meeting={x}
+            demo={user.email.endsWith("@demo.stenograf.local")}
+            keyConfigured={demoKeyUsage?.organizationId===org.id?demoKeyUsage.hasKey:undefined}
             view={meetingListView}
             expanded={expandedMeeting === x.id}
             onToggle={() => setExpandedMeeting((id) => id === x.id ? null : x.id)}
