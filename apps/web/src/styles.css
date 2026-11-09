@@ -2499,6 +2499,58 @@ main {
   margin: 14px 0 0 !important;
   text-align: left;
 }
+/* The standalone developer entrance fills the viewport; embedded admin gates
+   keep their existing dimensions. Auto margins allow short screens to scroll. */
+.secure-gate--developer {
+  min-height: calc(100svh / var(--interface-scale));
+  padding: 72px 24px 40px;
+  border-radius: 0;
+  box-shadow: none;
+}
+.secure-gate--developer .secure-gate__back {
+  top: 28px;
+  left: clamp(24px, 4vw, 72px);
+  padding: 8px 0;
+  font-size: 13px;
+}
+.secure-gate--developer .secure-gate__card {
+  width: min(100%, 480px);
+  margin: auto;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 20px 64px rgb(29 22 18 / 9%);
+}
+.secure-gate--developer .secure-gate__mark {
+  width: 44px;
+  height: 44px;
+  margin-bottom: 24px;
+}
+.secure-gate--developer h1 { font-size: clamp(32px, 4vw, 40px); line-height: 1.15; }
+.secure-gate--developer .secure-gate__card > p { max-width: none; margin: 12px 0 24px; font-size: 14px; }
+.secure-gate__demo-note {
+  margin: 0 0 28px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--soft) 55%, var(--panel));
+}
+.secure-gate__demo-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; font-weight: 700; }
+.secure-gate__demo-heading b { padding: 4px 10px; border-radius: 5px; background: var(--panel); color: var(--wine); font: 500 16px/1.4 "DM Mono", monospace; letter-spacing: .12em; }
+.secure-gate__demo-note p { margin: 10px 0 0; font-size: 12px; line-height: 1.65; color: var(--muted); }
+.secure-gate--developer .secure-gate__field input { min-height: 50px; }
+.secure-gate--developer .secure-gate__submit { min-height: 50px; margin-top: 16px; border-radius: 8px; }
+.secure-gate--developer .secure-gate__password-action { width: 36px; height: 40px; right: 6px; }
+.secure-gate--developer .secure-gate__password-action--clear { right: 42px; }
+.secure-gate--developer .secure-gate__field input { padding-right: 86px; }
+.secure-gate--developer .secure-gate__card > .secure-gate__account-note { margin: 20px 0 0; padding-top: 18px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.6; }
+.secure-gate--developer .secure-gate__card > .secure-gate__error { padding: 12px 14px; border-left: 2px solid var(--danger); background: color-mix(in srgb, var(--danger) 6%, transparent); color: var(--danger); font-size: 13px; }
+@media (max-width: 520px) {
+  .secure-gate--developer { padding: 80px 16px 32px; }
+  .secure-gate--developer .secure-gate__back { top: 20px; left: 20px; }
+  .secure-gate--developer .secure-gate__card { padding: 28px 24px; border-radius: 14px; }
+  .secure-gate__demo-note { padding: 14px; }
+}
 .dev .tabs {
   margin-bottom: 18px;
 }

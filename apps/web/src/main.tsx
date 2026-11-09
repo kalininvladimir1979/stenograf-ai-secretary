@@ -3197,7 +3197,10 @@ function Dev({ onBack }: { onBack: () => void }) {
             Закрытая среда для технической конфигурации, аудита, лимитов и
             диагностики платформы.
           </p>
-          {demoMode&&<p className="secure-gate__demo">Демо-режим включён. Учебный вход в Dev-консоль: <b>1234</b>. Также работает сохранённый пароль разработчика. Пароль рабочего аккаунта используется отдельно.</p>}
+          {demoMode && <div className="secure-gate__demo-note" role="note">
+            <div className="secure-gate__demo-heading"><span>Учебный доступ</span><b>1234</b></div>
+            <p>Демо-режим включён. Можно войти с учебным кодом или сохранённым паролем разработчика.</p>
+          </div>}
           <label className="secure-gate__field">
             <span>Пароль доступа</span>
             <span className="secure-gate__password-input">
@@ -3219,7 +3222,8 @@ function Dev({ onBack }: { onBack: () => void }) {
           <button className="primary secure-gate__submit" onClick={unlock}>
             Войти в Dev-консоль
           </button>
-          {error && !error.startsWith("Вход временно заблокирован") && <p className="error secure-gate__error">{error}</p>}
+          {error && !error.startsWith("Вход временно заблокирован") && <p className="error secure-gate__error" role="alert">{error}</p>}
+          <p className="secure-gate__account-note">Для рабочего аккаунта используется отдельный пароль.</p>
         </div>
       </section>
     );
