@@ -1,7 +1,7 @@
 import {config} from 'dotenv';
 import {PrismaClient} from '@prisma/client';
 import {randomBytes,createHash} from 'node:crypto';
-import {mkdir,writeFile} from 'node:fs/promises';
+import {mkdir,writeFile,chmod} from 'node:fs/promises';
 import path from 'node:path';
 config({path:'.env',quiet:true});
 const dbUrl=new URL(process.env.DATABASE_URL||'');
@@ -19,5 +19,6 @@ try{
  await mkdir('.local',{recursive:true,mode:0o700});
  const output=path.resolve('.local/account-recovery.json');
  await writeFile(output,JSON.stringify({token,email,expiresAt}),{mode:0o600});
+ await chmod(output,0o600);
  console.log('Local one-time reset prepared. Private handoff file: '+output+'. Password has not changed yet.');
 }finally{await db.$disconnect();}
