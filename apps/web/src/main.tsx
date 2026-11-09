@@ -54,7 +54,7 @@ import {modelCatalogOrganizations,shouldStartPublicDemo,workspaceUrl,surfaceForP
 import WorkspaceSignInDialog from "./WorkspaceSignInDialog";
 import LocalPasswordReset from "./LocalPasswordReset";
 import WorkspaceSetup from "./WorkspaceSetup";
-import AdminInstructions,{InstructionsHelp} from "./Instructions";
+import DeveloperInstructions,{InstructionsHelp} from "./Instructions";
 
 import ChatComposer from "./VoiceInput";
 import {appendDictation} from "./voice-dictation";
@@ -2135,7 +2135,7 @@ function Admin({ org, onBack, onOrganizationChanged, tourSignal }: { org: Org; o
     [editingTemplateId, setEditingTemplateId] = useState<string | null>(null),
     [saving, setSaving] = useState(false),
     [tourStep, setTourStep] = useState<number | null>(null),
-    [openSection, setOpenSection] = useState<string>(() => ["cloud","instructions"].includes(new URLSearchParams(window.location.search).get("section")||"") ? new URLSearchParams(window.location.search).get("section")! : "integrations");
+    [openSection, setOpenSection] = useState<string>(() => ["cloud"].includes(new URLSearchParams(window.location.search).get("section")||"") ? new URLSearchParams(window.location.search).get("section")! : "integrations");
   const tourStorageKey = `secretary-admin-tour:${org.id}:v1`;
   const load = () =>
     api<any>(`/admin/templates?organizationId=${org.id}`).then(setData);
@@ -2191,7 +2191,6 @@ function Admin({ org, onBack, onOrganizationChanged, tourSignal }: { org: Org; o
         <span>НАСТРОЙКИ АГЕНТА</span>
         <button className={openSection === "integrations" ? "active" : ""} onClick={() => setOpenSection("integrations")}>Главная и ключи</button>
         <button className={openSection === "cloud" ? "active" : ""} onClick={() => setOpenSection("cloud")}>Облачные папки</button>
-        <button className={openSection === "instructions" ? "active" : ""} onClick={() => setOpenSection("instructions")}>Инструкции</button>
         <button className={openSection === "templates" ? "active" : ""} onClick={() => setOpenSection("templates")}>Шаблоны встреч</button>
         <button className={openSection === "retention" ? "active" : ""} onClick={() => setOpenSection("retention")}>Аудио и хранение</button>
         <button className={openSection === "board" ? "active" : ""} onClick={() => setOpenSection("board")}>Доска поручений</button>
@@ -2199,7 +2198,6 @@ function Admin({ org, onBack, onOrganizationChanged, tourSignal }: { org: Org; o
         <button className={openSection === "members" ? "active" : ""} onClick={() => setOpenSection("members")}>Команда и роли</button>
       </nav>
       <div className="admin-layout__content">
-      {openSection === "instructions" && <AdminInstructions key={org.id} orgId={org.id}/>}
       {openSection==='cloud'&&<CloudFolders orgId={org.id}/>}
       <AccordionSection title="Шаблоны встреч" summary="Структура AI-результата и пользовательские сценарии" open={openSection === "templates"} onToggle={() => setOpenSection("templates")} tourTarget="templates">
       <div className="template-guide" aria-label="Как работать с шаблонами встреч">
@@ -2995,6 +2993,7 @@ function Dev({ onBack }: { onBack: () => void }) {
   const [fontMenuOpen, setFontMenuOpen] = useState(false);
   const publicDemoReadOnly = developerAccess.mode==='demo' || (demoMode && !developerAccess.canManageDemo && !["localhost", "127.0.0.1"].includes(window.location.hostname));
   const [confirmWorkspaceSignIn, setConfirmWorkspaceSignIn] = useState(false);
+  const [instructionOrgId,setInstructionOrgId]=useState("all");
   const catalogOrganizations = modelCatalogOrganizations(organizations);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -3330,6 +3329,7 @@ function Dev({ onBack }: { onBack: () => void }) {
           Публикация
         </button>
         <button className={tab === "removal" ? "active" : ""} onClick={() => setTab("removal")}>Удаление с сервера</button>
+        <button className={tab === "instructions" ? "active" : ""} onClick={() => setTab("instructions")}>Инструкции</button>
         <button className={tab === "transfer" ? "active" : ""} onClick={() => setTab("transfer")}>Перенос данных</button>
         {developerAccess.canManageDemo && <button className={tab === "security" ? "active" : ""} onClick={() => setTab("security")}>Безопасность</button>}
       </nav>
@@ -3477,6 +3477,7 @@ function Dev({ onBack }: { onBack: () => void }) {
       {tab === "orgs" && <DeveloperOrganizations readOnlyDemo={publicDemoReadOnly} />}
       {tab === "publication" && <PublicationProfiles readOnlyDemo={demoMode && !["localhost", "127.0.0.1"].includes(window.location.hostname)} />}
       {tab === "removal" && <ServerRemoval readOnlyDemo={publicDemoReadOnly} />}
+      {tab === "instructions" && (developerAccess.canManageDemo ? <section><label className="instructions-organization">Организация для инструкций<select value={instructionOrgId} onChange={e=>setInstructionOrgId(e.target.value)}><option value="all">Все компании — общие инструкции</option>{catalogOrganizations.map(o=><option key={o.id} value={o.id}>{o.name}{o.isCurrentDemo?" · текущий браузер":""}</option>)}</select></label>{instructionOrgId?<DeveloperInstructions key={instructionOrgId} orgId={instructionOrgId}/>:<p>Выберите организацию для инструкций.</p>}</section> : <p className="dev-demo-banner">Управление инструкциями доступно после рабочего входа владельца. <a href={developerOwnerLoginUrl()}>Войти владельцу</a></p>)}
       {tab === "transfer" && <KnowledgeTransfer organizations={catalogOrganizations} readOnlyDemo={!developerAccess.canManageDemo} />}
       {tab === "security" && developerAccess.canManageDemo && <DeveloperSecurity demoMode={demoMode} onDemoModeChange={setDemoMode} />}
       </section>

@@ -1182,7 +1182,7 @@ function enqueueMeetingMedia(meetingId: string, task: () => Promise<void>) {
     if (meetingMediaQueues.get(meetingId) === current) meetingMediaQueues.delete(meetingId);
   }).catch((error) => console.error("Media processing failed:", error));
 }
-await installInstructions({app,db,auth,member,jwtSecret,transcribe:transcribeLongAudio,readableName:readableUploadName});
+
 app.post(["/meetings/:id/dictation","/meetings/:id/chat-dictation"], auth, upload.single("audio"), async (req: Authed, res) => {
   const recording = req.file;
   if (!recording) return res.status(400).json({ error: "Запись не получена." });
@@ -1783,6 +1783,7 @@ const protectedDemoManagement = (req:Request,res:Response,next:NextFunction) => 
   if(!(req as any).developerAccess?.canManageDemo)return res.status(403).json({error:'Управление демо-режимом и ключом платформы доступно только после рабочего входа владельца по email и паролю.'});
   next();
 };
+await installInstructions({app,db,auth,member,jwtSecret,transcribe:transcribeLongAudio,readableName:readableUploadName,protectedDev,ownerGuard:protectedDemoManagement});
 app.get('/developer/access',protectedDev,(req,res)=>{const {mode,canManageDemo}=(req as any).developerAccess;res.json({mode,canManageDemo});});
 installArchiveTransfer({app,db,protectedDev,ownerGuard:protectedDemoManagement,storageRoot:path.resolve(uploadRoot,'..'),decryptSecret:decryptPublicationSecret,encryptSecret:encryptPublicationSecret,extractScript:path.join(path.dirname(new URL(import.meta.url).pathname),new URL(import.meta.url).pathname.includes('/dist/')?'../../scripts/extract-archive.py':'../scripts/extract-archive.py')});
 const protectedPublicationWrite = async (_req: Request, res: Response, next: NextFunction) => {

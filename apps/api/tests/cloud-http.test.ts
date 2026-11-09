@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {cloudJsonFetch,yandexPublicFile} from '../src/cloud-http.js';
+import {cloudJsonFetch,yandexPublicFile,retryCloudRead,cloudHttpError} from '../src/cloud-http.js';
 
 test('Yandex metadata download URL avoids the independently throttled download endpoint',async()=>{
  const calls:string[]=[];const result=await yandexPublicFile('https://disk.yandex.ru/d/fixture',async url=>{calls.push(url);assert.ok(!url.includes('/download'));return {type:'file',name:'meeting.mp3',resource_id:'file-1',md5:'revision-1',file:'https://downloader.disk.yandex.ru/fixture'};});
@@ -20,4 +20,9 @@ test('persistent throttling preserves status and never suggests reconnecting; lo
 });
 test('POST and authorization errors are not replayed',async()=>{
  for(const [method,status] of [['POST',429],['GET',401],['GET',403]] as const){let calls=0;await assert.rejects(cloudJsonFetch('https://cloud-api.yandex.net/test',{method},{fetch:async()=>{calls++;return new Response('html error',{status});},wait:async()=>assert.fail('unexpected retry')}),(e:any)=>e.status===status);assert.equal(calls,1);}
+});
+
+test('instruction file reads retry temporary throttling without bypassing long cooldowns',async()=>{
+ let calls=0;const delays:number[]=[];assert.equal(await retryCloudRead(async()=>{if(++calls<3)throw cloudHttpError(429,'1');return 'file';},async ms=>{delays.push(ms);}),'file');assert.equal(calls,3);assert.deepEqual(delays,[1000,2000]);
+ await assert.rejects(retryCloudRead(async()=>{throw cloudHttpError(429,'120');},async()=>assert.fail('must respect cooldown')),(e:any)=>e.status===429);
 });

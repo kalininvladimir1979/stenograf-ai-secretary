@@ -30,3 +30,8 @@ export async function yandexPublicFile(url:string,jsonFetch:typeof cloudJsonFetc
   if(typeof downloadUrl!=='string'||!downloadUrl)throw Error('Облако не предоставило ссылку для скачивания файла.');
   return {provider:'yandex',id:data.resource_id||data.public_key||url,version:data.md5||data.modified+':'+data.size,name:data.name,url:downloadUrl,normalizedUrl:url};
 }
+
+// Bounded retries for idempotent file reads; long provider cooldowns are not bypassed.
+export async function retryCloudRead<T>(read:()=>Promise<T>,sleep:(ms:number)=>Promise<unknown>=wait):Promise<T>{
+ for(let attempt=0;;attempt++){try{return await read();}catch(error:any){const delay=Math.max(1000*2**attempt,(error.retryAfterSeconds||0)*1000);if(attempt>=2||delay>10000||!(error.status===429||error.status>=500&&error.status<=599))throw error;await sleep(delay);}}
+}
