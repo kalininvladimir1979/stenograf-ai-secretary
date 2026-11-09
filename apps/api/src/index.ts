@@ -4,7 +4,7 @@ import {publicationStatus} from "./publication-status.js";
 import {releaseMode,prepareMaintenance,finishMaintenance,type ReleaseMode} from "./release-maintenance.js";
 import {installLocalPasswordReset} from "./local-password-reset.js";
 import {createWorkspace} from "./create-workspace.js";
-import {developerPasswordAccepted} from "./developer-access.js";
+import {developerPasswordAccepted,isPlatformOwnerSession} from "./developer-access.js";
 import {installInstructions} from "./instructions.js";
 import express, {
   type Request,
@@ -1759,10 +1759,27 @@ const protectedDev = async (req: Request, res: Response, next: NextFunction) => 
     const password=String(req.headers['x-dev-password']||'');
     const saved=await db.devSetting.findUnique({where:{key:'developer_console_password_hash'}});
     const demoEnabled=await demoModeEnabled();
-    if(await developerPasswordAccepted(password,{demoEnabled,savedHash:saved?.value,bootstrapPassword:process.env.DEV_CONSOLE_BOOTSTRAP_PASSWORD}))return next();
+    let owner=false;
+    try {
+      const raw=req.headers.authorization?.replace('Bearer ','');
+      const payload=raw?jwt.verify(raw,jwtSecret) as {id:string;demo?:boolean}:null;
+      const binding=await db.devSetting.findUnique({where:{key:'developer_owner_user_id'}});
+      owner=isPlatformOwnerSession(payload,binding?.value) && !!(await db.user.findUnique({where:{id:payload!.id},select:{id:true}}));
+    } catch { /* Invalid account tokens cannot grant platform privileges. */ }
+    if(!password && owner){(req as any).developerAccess={mode:'owner',canManageDemo:true};return next();}
+    if(await developerPasswordAccepted(password,{demoEnabled,savedHash:saved?.value,bootstrapPassword:process.env.DEV_CONSOLE_BOOTSTRAP_PASSWORD})){
+      const mode=demoEnabled&&password==='1234'?'demo':'developer';
+      (req as any).developerAccess={mode,canManageDemo:owner&&mode!=='demo'};
+      return next();
+    }
     return res.status(401).json({error:demoEnabled?'Неверный пароль Dev-консоли. В демо-режиме используйте 1234 или свой пароль разработчика.':'Неверный пароль Dev-консоли. Демо-режим выключен: нужен сохранённый пароль разработчика.'});
   }catch{return res.status(503).json({error:'Не удалось проверить доступ к Dev-консоли. Повторите попытку.'});}
 };
+const protectedDemoManagement = (req:Request,res:Response,next:NextFunction) => {
+  if(!(req as any).developerAccess?.canManageDemo)return res.status(403).json({error:'Управление демо-режимом и ключом платформы доступно только после рабочего входа владельца по email и паролю.'});
+  next();
+};
+app.get('/developer/access',protectedDev,(req,res)=>res.json((req as any).developerAccess));
 const protectedPublicationWrite = async (_req: Request, res: Response, next: NextFunction) => {
   if (process.env.NODE_ENV === "production" && await demoModeEnabled())
     return res.status(403).json({ error: "В публичном демо-режиме выпуск и изменение профилей отключены. Используйте локальную защищённую Dev-консоль." });
@@ -2338,7 +2355,7 @@ app.post("/developer/security/password", protectedDev, async (req, res) => {
 app.get("/developer/demo-mode", protectedDev, async (_req, res) => {
   res.json(await demoModeConfig());
 });
-app.put("/developer/demo-mode", protectedDev, async (req, res) => {
+app.put("/developer/demo-mode", protectedDev, protectedDemoManagement, async (req, res) => {
   const { enabled, features } = demoConfigSchema.parse(req.body);
   if (enabled) await ensureDemoWorkspace();
   await db.$transaction([
@@ -2390,11 +2407,7 @@ const knowledgeTransferSchema = z.discriminatedUnion("scope", [
   z.object({ ...transferBase, scope: z.literal("templates"), templates: z.array(transferTemplateSchema).max(100) }).strict(),
   z.object({ ...transferBase, scope: z.literal("all"), systemPrompt: z.string().max(30000), templates: z.array(transferTemplateSchema).max(100) }).strict(),
 ]);
-const knowledgeTransferGuard = async (_req: Request, res: Response, next: NextFunction) => {
-  if (process.env.NODE_ENV === "production" && await demoModeEnabled())
-    return res.status(403).json({ error: "Перенос знаний недоступен в публичном демо-режиме." });
-  next();
-};
+const knowledgeTransferGuard = protectedDemoManagement;
 const knowledgeTransferOrganization = async (organizationId: unknown) => {
   if (typeof organizationId !== "string" || !organizationId) return null;
   return db.organization.findFirst({ where: { id: organizationId, slug: { not: "demo-stenograf" } }, select: { id: true, name: true } });
@@ -2476,7 +2489,7 @@ app.get("/developer/settings/:key/reveal", protectedDev, async (_req, res) => {
   res.status(403).json({ error: "Сохранённые секреты не возвращаются в интерфейс" });
 });
 app.put("/developer/settings/:key", protectedDev, async (req, res) => {
-  if (req.params.key === "developer_openai_api_key" && process.env.NODE_ENV === "production" && await demoModeEnabled())
+  if (req.params.key === "developer_openai_api_key" && !(req as any).developerAccess?.canManageDemo)
     return res.status(403).json({ error: "В публичном демо-режиме изменение ключа разработчика отключено" });
   if (req.params.key === "openai_api_key")
     return res.status(403).json({

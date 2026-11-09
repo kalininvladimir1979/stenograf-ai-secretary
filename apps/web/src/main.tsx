@@ -49,7 +49,7 @@ import { API, api, audio, dev, token, uploadAvatar, video, demoBrowser } from ".
 import KnowledgeTransfer from "./KnowledgeTransfer";
 import CloudStorageCheck from "./CloudStorageCheck";
 import TranscriptView from "./TranscriptView";
-import {modelCatalogOrganizations,shouldStartPublicDemo,workspaceUrl,surfaceForPath,surfaceUrl} from "./workspace-access";
+import {modelCatalogOrganizations,shouldStartPublicDemo,workspaceUrl,surfaceForPath,surfaceUrl,developerOwnerLoginUrl} from "./workspace-access";
 import WorkspaceSignInDialog from "./WorkspaceSignInDialog";
 import LocalPasswordReset from "./LocalPasswordReset";
 import WorkspaceSetup from "./WorkspaceSetup";
@@ -265,6 +265,11 @@ function Login({ onAuth, demoAvailable=false }: { onAuth: (token: string) => voi
         body: JSON.stringify(credentials),
       });
       localStorage.setItem("secretary-token", r.token);
+      if(new URL(location.href).searchParams.get('returnTo')==='dev'){
+        sessionStorage.removeItem('secretary-dev-password');
+        window.location.assign(surfaceUrl('dev'));
+        return;
+      }
       const url=new URL(location.href);url.searchParams.delete("login");history.replaceState(null,"",url);
       onAuth(r.token);
     } catch (e) {
@@ -3100,6 +3105,8 @@ function AdminIntegrations({ organizationId }: { organizationId: string }) {
 }
 
 function Dev({ onBack }: { onBack: () => void }) {
+  const [developerAccess,setDeveloperAccess]=useState<{mode:string;canManageDemo:boolean}>({mode:'',canManageDemo:false});
+  const devAccessAttempt=useRef(0);
   const [authorized, setAuthorized] = useState(false),
     [items, setItems] = useState<any[]>([]),
     [values, setValues] = useState<Record<string, string>>({}),
@@ -3122,7 +3129,7 @@ function Dev({ onBack }: { onBack: () => void }) {
     [demoMode, setDemoMode] = useState(false);
   const [fontScale, setFontScale] = useState(() => Number(localStorage.getItem("secretary-font-scale") || 100));
   const [fontMenuOpen, setFontMenuOpen] = useState(false);
-  const publicDemoReadOnly = demoMode && !["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const publicDemoReadOnly = developerAccess.mode==='demo' || (demoMode && !developerAccess.canManageDemo && !["localhost", "127.0.0.1"].includes(window.location.hostname));
   const [confirmWorkspaceSignIn, setConfirmWorkspaceSignIn] = useState(false);
   const catalogOrganizations = modelCatalogOrganizations(organizations);
   useEffect(() => {
@@ -3143,18 +3150,36 @@ function Dev({ onBack }: { onBack: () => void }) {
     window.addEventListener("focus", refreshDemoMode);
     return () => { window.clearInterval(timer); window.removeEventListener("focus", refreshDemoMode); };
   }, []);
-  const load = () =>
-    dev<any[]>("/developer/settings")
-      .then((x) => {
+  const load = (passwordOverride?:string) => {
+    const attempt=devAccessAttempt.current;
+    return Promise.all([dev<any[]>("/developer/settings",{},passwordOverride),dev<{mode:string;canManageDemo:boolean}>('/developer/access',{},passwordOverride)])
+      .then(([x,access]) => {
+        if(attempt!==devAccessAttempt.current)return;
         setItems(x);
+        setDeveloperAccess(access);
         setAuthorized(true);
       })
       .catch((e) => {
+        if(attempt!==devAccessAttempt.current)return;
         sessionStorage.removeItem("secretary-dev-password");
         api<{ enabled: boolean }>("/demo-mode").then((state) => setDemoMode(state.enabled)).catch(() => undefined);
         setError(e.message);
       });
+  };
+  useEffect(()=>{
+    if(!token())return;
+    let active=true;
+    const attempt=devAccessAttempt.current;
+    dev<{mode:string;canManageDemo:boolean}>('/developer/access',{},'').then(access=>{
+      if(active&&attempt===devAccessAttempt.current&&access.mode==='owner'){
+        sessionStorage.removeItem('secretary-dev-password');
+        void load('');
+      }
+    }).catch(()=>undefined);
+    return()=>{active=false;};
+  },[]);
   const unlock = () => {
+    devAccessAttempt.current++;
     setError("");
     if (!password) {
       setError("Введите пароль Dev-консоли.");
@@ -3224,6 +3249,7 @@ function Dev({ onBack }: { onBack: () => void }) {
           </button>
           {error && !error.startsWith("Вход временно заблокирован") && <p className="error secure-gate__error" role="alert">{error}</p>}
           <p className="secure-gate__account-note">Для рабочего аккаунта используется отдельный пароль.</p>
+          <a className="secure-gate__owner-login" href={developerOwnerLoginUrl()}>Войти владельцу по email и паролю <ArrowUpRight size={15}/></a>
         </div>
       </section>
     );
@@ -3311,7 +3337,7 @@ function Dev({ onBack }: { onBack: () => void }) {
         <div className="dev-surface__navigation"><button className="back" onClick={onBack}>
           ← К рабочему пространству
         </button>
-        <a className="back" href={workspaceUrl(true)}>Войти в рабочее пространство</a></div>
+        <a className="back" href={developerOwnerLoginUrl()}>Войти владельцу по email и паролю</a></div>
         <div className="dev-surface__identity">
           <span>СтеноГРАФ</span>
           <b>DEV CONSOLE</b>
@@ -3352,6 +3378,8 @@ function Dev({ onBack }: { onBack: () => void }) {
         </div>
       </header>
       <section className="dev">
+      {developerAccess.mode==='demo' && <aside className="dev-demo-banner" role="status"><Lock size={20} aria-hidden="true"/><div><strong>Демо-режим консоли</strong><p>Учебный вход по коду 1234. Управление демо-режимом и ключом платформы доступно только владельцу.</p><a href={developerOwnerLoginUrl()}>Войти владельцу по email и паролю <ArrowUpRight size={14}/></a></div></aside>}
+      {developerAccess.mode==='owner' && <p className="dev-owner-session"><CheckCircle2 size={16} aria-hidden="true"/> Рабочий доступ владельца</p>}
       <header>
         <h1>Провайдеры и секреты</h1>
       </header>
@@ -3438,7 +3466,7 @@ function Dev({ onBack }: { onBack: () => void }) {
         </button>
         <button className={tab === "removal" ? "active" : ""} onClick={() => setTab("removal")}>Удаление с сервера</button>
         <button className={tab === "transfer" ? "active" : ""} onClick={() => setTab("transfer")}>Перенос заданий</button>
-        <button className={tab === "security" ? "active" : ""} onClick={() => setTab("security")}>Безопасность</button>
+        {developerAccess.canManageDemo && <button className={tab === "security" ? "active" : ""} onClick={() => setTab("security")}>Безопасность</button>}
       </nav>
       {tab === "keys" && (
         <div className="secrets">
@@ -3584,8 +3612,8 @@ function Dev({ onBack }: { onBack: () => void }) {
       {tab === "orgs" && <DeveloperOrganizations readOnlyDemo={publicDemoReadOnly} />}
       {tab === "publication" && <PublicationProfiles readOnlyDemo={demoMode && !["localhost", "127.0.0.1"].includes(window.location.hostname)} />}
       {tab === "removal" && <ServerRemoval readOnlyDemo={publicDemoReadOnly} />}
-      {tab === "transfer" && <KnowledgeTransfer organizations={catalogOrganizations} readOnlyDemo={publicDemoReadOnly} />}
-      {tab === "security" && <DeveloperSecurity demoMode={demoMode} onDemoModeChange={setDemoMode} />}
+      {tab === "transfer" && <KnowledgeTransfer organizations={catalogOrganizations} readOnlyDemo={!developerAccess.canManageDemo} />}
+      {tab === "security" && developerAccess.canManageDemo && <DeveloperSecurity demoMode={demoMode} onDemoModeChange={setDemoMode} />}
       </section>
     </main>
   );

@@ -876,6 +876,13 @@ main {
 .demo-key-notice p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
 .demo-key-notice a { color: var(--wine); text-underline-offset: 3px; }
 .demo-key-notice b { font-variant-numeric: tabular-nums; }
+.dev-demo-banner { display: flex; align-items: flex-start; gap: 14px; padding: 20px 24px; margin-bottom: 32px; border: 1px solid var(--line); border-left: 3px solid var(--wine); border-radius: 10px; background: color-mix(in srgb, var(--soft) 65%, var(--panel)); }
+.dev-demo-banner > svg { flex-shrink: 0; color: var(--wine); margin-top: 2px; }
+.dev-demo-banner strong { font-size: 17px; }
+.dev-demo-banner p { margin: 6px 0 10px; font: 13px/1.6 Manrope,sans-serif; color: var(--muted); }
+.dev-demo-banner a,.secure-gate__owner-login { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--wine); text-underline-offset: 4px; }
+.secure-gate__owner-login { margin-top: 16px; }
+.dev-owner-session { display: flex; align-items: center; gap: 8px; color: var(--success); font-size: 13px; }
 .security-form { display: grid; gap: 14px; margin-top: 20px; }
 .security-form label { display: grid; gap: 7px; max-width: 460px; color: var(--ink); font-size: 12px; font-weight: 600; }
 .password-control { display: grid; grid-template-columns: minmax(0, 1fr) 38px 38px; border: 1px solid var(--line); background: transparent; }

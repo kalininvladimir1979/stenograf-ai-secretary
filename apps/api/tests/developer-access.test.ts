@@ -1,7 +1,13 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
-import {developerPasswordAccepted} from '../src/developer-access.js';
+import {developerPasswordAccepted,isPlatformOwnerSession} from '../src/developer-access.js';
+
+test('only the pinned real owner account can manage platform demo settings',()=>{
+ assert.equal(isPlatformOwnerSession({id:'owner',demo:false},'owner'),true);
+ for(const payload of [null,{id:'owner',demo:true},{id:'other',demo:false},{id:'owner'}])assert.equal(isPlatformOwnerSession(payload,'owner'),false);
+ assert.equal(isPlatformOwnerSession({id:'owner',demo:false},null),false);
+});
 
 test('demo code is accepted only while the mode is enabled; real password remains unchanged',async()=>{
  const savedHash=await bcrypt.hash('Synthetic separate developer password',4),before=savedHash;

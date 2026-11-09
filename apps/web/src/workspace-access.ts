@@ -8,6 +8,9 @@ export function shouldStartPublicDemo({enabled,publicAccess,restored,explicitLog
 export function workspaceUrl(login=false){
   const url=new URL(import.meta.env.BASE_URL,window.location.origin);url.searchParams.set('surface','app');if(login)url.searchParams.set('login','1');return url.href;
 }
+export function developerOwnerLoginUrl(){
+ const url=new URL(workspaceUrl(true));url.searchParams.set('returnTo','dev');return url.href;
+}
 export function surfaceForPath(pathname:string,base='/'){
  const prefix=base.replace(/\/+$/,'');
  if(prefix&& !pathname.startsWith(prefix+'/'))return null;
